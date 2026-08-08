@@ -1,0 +1,49 @@
+[project]
+name = "measurement"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "measurement-core",
+    "measurement-train",
+    "measurement-export",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+measurement-core = { workspace = true }
+measurement-train = { workspace = true }
+measurement-export = { workspace = true }
+torch = { index = "pytorch-cuda" }
+torchvision = { index = "pytorch-cuda" }
+virid-core = { index = "virid" }
+virid-std = { index = "virid" }
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+
+[[tool.uv.index]]
+name = "virid"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+# url = "https://download.pytorch.org/whl/cu132"
+url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124/"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.pyright]
+extraPaths = [
+    "packages/core/src",
+    "packages/train/src",
+    "packages/export/src"
+]
+useLibraryCodeForTypes = true

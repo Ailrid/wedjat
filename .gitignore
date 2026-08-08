@@ -1,0 +1,25 @@
+# measurement
+__pycache__/
+*.py[oc]
+
+logs
+checkpoints
+experiment
+
+*.onnx
+*.png
+*.tif
+*.tiff
+*.pth
+
+
+# uv
+.venv
+uv.lock
+
+# engine
+Cargo.lock
+target
+
+# rknn
+*.rknn
