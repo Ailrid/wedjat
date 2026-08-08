@@ -1,0 +1,24 @@
+[project]
+name = "metric-train"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "metric-core", 
+    "virid-core>=0.1.6",
+    "virid-std>=0.1.6",
+    "matplotlib",
+    "seaborn",
+]
+[tool.hatch.build.targets.wheel]
+packages = ["src/metric"]
+# layout = "src"
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[tool.uv.sources]
+metric-core= { workspace = true }
+

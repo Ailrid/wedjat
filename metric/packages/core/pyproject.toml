@@ -1,0 +1,25 @@
+[project]
+name = "metric-core"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python",
+    "pyproj",
+    "rasterio",
+    "torch",
+    "torchvision",
+    "tqdm",
+    "tifffile",
+    "imagecodecs",
+    "timm",
+    "requests",
+    "mercantile"
+]
+[tool.hatch.build.targets.wheel]
+packages = ["src/metric"]
+layout = "src"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
