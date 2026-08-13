@@ -17,7 +17,7 @@ dependencies = [
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["src/metric"]
-layout = "src"
+# layout = "src"
 
 [build-system]
 requires = ["hatchling"]

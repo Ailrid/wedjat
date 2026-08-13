@@ -46,19 +46,14 @@ def preprocess_uav_image(
 
     h, w = image_rgb.shape[:2]
 
-    # 1. 顺时针/逆时针旋转图像至正北 (假设 yaw 为偏离正北的角度)
-    # 绕图像中心旋转
     center = (w / 2.0, h / 2.0)
-    # 旋转矩阵（yaw 角度旋转）
     rotation_matrix = cv2.getRotationMatrix2D(center, -yaw, 1.0)
 
-    # 计算旋转后的外包盒，防止图像边缘裁剪丢失
     cos = np.abs(rotation_matrix[0, 0])
     sin = np.abs(rotation_matrix[0, 1])
     new_w = int((h * sin) + (w * cos))
     new_h = int((h * cos) + (w * sin))
 
-    # 调整变换矩阵平移量
     rotation_matrix[0, 2] += (new_w / 2) - center[0]
     rotation_matrix[1, 2] += (new_h / 2) - center[1]
 
@@ -82,13 +77,12 @@ def preprocess_uav_image(
         image_rgb, (scaled_w, scaled_h), interpolation=interpolation
     )
 
-    # 3. 中心裁剪 / Pad 填充
     cropped_img = _center_crop_or_pad(scaled_img, crop_size)
     return cropped_img
 
 
 def _center_crop_or_pad(image: np.ndarray, crop_size: int) -> np.ndarray:
-    """对图像中心裁剪或填充补齐到 crop_size x crop_size."""
+
     h, w, _ = image.shape
 
     if h < crop_size:
@@ -127,9 +121,7 @@ def lonlat_to_pixel(
     src_raster: rasterio.DatasetReader,
     transformer: Optional[pyproj.Transformer] = None,
 ) -> Tuple[int, int]:
-    """将 (Lon, Lat) 经纬度换算为 TIF 图像的 (Pixel_X, Pixel_Y) 像素坐标."""
     if transformer:
-        # 如果 TIF 的 CRS 不是 WGS84 经纬度（如 UTM），先投影转换
         x_proj, y_proj = transformer.transform(lon, lat)
     else:
         x_proj, y_proj = lon, lat
@@ -152,8 +144,8 @@ def test_img_folder_rank(
     visualize_top_k: int = 3,
     output_dir: str = "tif_star_search_visualizations",
 ) -> None:
-    """Read image folder and metadata, run retrieval, save patch comparison plots,
-
+    """
+    Read image folder and metadata, run retrieval, save patch comparison plots,
     and plot all query results on a single combined map.
     """
     if not os.path.exists(folder_path) or not os.path.exists(tif_path):
@@ -207,7 +199,7 @@ def test_img_folder_rank(
             query_lon = meta.get("lon") if meta else None
             query_lat = meta.get("lat") if meta else None
 
-            # 1. Preprocess UAV image
+            # Preprocess UAV image
             processed_img = preprocess_uav_image(
                 image_rgb=image_rgb,
                 yaw=yaw,
@@ -215,12 +207,12 @@ def test_img_folder_rank(
                 crop_size=input_size,
             )
 
-            # 2. Extract features
+            # Extract features
             data = np.transpose(processed_img, (2, 0, 1))
             feat: np.ndarray = inferencer.infer(data)
             query_vector = feat.flatten().tolist()
 
-            # 3. Query Qdrant
+            # Query Qdrant
             search_result = client.query_points(
                 collection_name=collection_name,
                 query=query_vector,
@@ -228,7 +220,7 @@ def test_img_folder_rank(
             )
             points = search_result.points
 
-            # 4. Generate visualizations if within visualize_top_k limit
+            # Generate visualizations if within visualize_top_k limit
             if len(query_results) < visualize_top_k and query_lon and query_lat:
                 query_px, query_py = lonlat_to_pixel(
                     query_lon, query_lat, src_raster, transformer
@@ -324,7 +316,7 @@ def _draw_combined_star_map_visualization(
 
         q_color = query_colors[(q_idx - 1) % len(query_colors)]
 
-        # 1. Plot Query center location
+        # Plot Query center location
         ax.scatter(
             q_x,
             q_y,
@@ -346,7 +338,7 @@ def _draw_combined_star_map_visualization(
             bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.6),
         )
 
-        # 2. Plot Top-5 matches for current query
+        # Plot Top-5 matches for current query
         for rank_idx, point in enumerate(search_points, start=1):
             payload = point.payload or {}
             score = getattr(point, "score", 0.0)

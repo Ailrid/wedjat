@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: metric
+Project: wedjat-metric
 """
 
 from metric.export import (
@@ -23,6 +23,6 @@ if __name__ == "__main__":
         collection_name=collection_name,
         input_size=256,
         scale=1.0,
-        visualize_top_k = 10,
+        visualize_top_k=10,
         output_dir="png_search_visualizations",
     )

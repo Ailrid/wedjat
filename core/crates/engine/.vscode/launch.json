@@ -1,0 +1,148 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug unit tests in library 'feature'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=feature"
+                ]
+            }
+        },
+        {
+            "name": "Debug unit tests in library 'imu'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=imu"
+                ]
+            }
+        },
+        {
+            "name": "Debug integration test 'integrator_test'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=integrator_test",
+                    "--package=imu"
+                ]
+            }
+        },
+        {
+            "name": "Debug unit tests in library 'map_matching'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=map_matching"
+                ]
+            }
+        },
+        {
+            "name": "Debug integration test 'coord'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=coord",
+                    "--package=map_matching"
+                ]
+            }
+        },
+        {
+            "name": "Debug integration test 'location'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=location",
+                    "--package=map_matching"
+                ]
+            }
+        },
+        {
+            "name": "Debug integration test 'matcher_test'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=matcher_test",
+                    "--package=map_matching"
+                ]
+            }
+        },
+        {
+            "name": "Debug unit tests in library 'tracker'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=tracker"
+                ]
+            }
+        },
+        {
+            "name": "Debug unit tests in library 'vision_slam'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--package=vision_slam"
+                ]
+            }
+        },
+        {
+            "name": "Debug example 'euroc'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--example=euroc",
+                    "--package=vision_slam"
+                ]
+            },
+            "args": []
+        },
+        {
+            "name": "Debug unit tests in example 'euroc'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--example=euroc",
+                    "--package=vision_slam"
+                ]
+            }
+        },
+        {
+            "name": "Debug integration test 'feature'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--test=feature",
+                    "--package=vision_slam"
+                ]
+            }
+        }
+    ]
+}

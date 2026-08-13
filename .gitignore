@@ -1,7 +1,7 @@
 # metric
 __pycache__/
 *.py[oc]
-
+assets
 logs
 checkpoints
 experiment
@@ -23,3 +23,6 @@ target
 
 # rknn
 *.rknn
+snapshot
+test_images
+tmp

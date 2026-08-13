@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: metric
+Project: wedjat-metric
 """
 
 from metric.core import (
@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     target_url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
 
-    #Download tiles in parallel
+    # Download tiles in parallel
     batch_download_parallel(
         bbox=my_bbox,
         url_template=target_url,

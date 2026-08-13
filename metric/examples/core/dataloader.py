@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: metric
+Project: wedjat-metric
 """
 
 import time
@@ -48,7 +48,7 @@ def benchmark_dataloader():
         print("positives size:", positives.shape)
 
         # Calculate individual image crops per yield: 1 anchor + N positives + M negatives
-        images_per_yield = (1 + true_sample_number) *  samples_per_yield
+        images_per_yield = (1 + true_sample_number) * samples_per_yield
         total_images_processed += anchors.size(0) * images_per_yield
         print("Warm-up completed. Iterating through the remaining data...")
     except StopIteration:

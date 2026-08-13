@@ -3,4 +3,24 @@ name = "wedjat-core"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    "crates/*"
+]
+
+
+[workspace.dependencies]
+nalgebra = { version = "0.34.1" }
+opencv = { version = "0.98.0", features = ["clang-runtime"] }
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.9.2"
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+rayon = "1.11.0"
+
+
 [dependencies]
+imu = { path = "crates/imu" }
+camera = { path = "crates/camera" }
+engine = { path = "crates/engine" }
+client = { path = "crates/client" }

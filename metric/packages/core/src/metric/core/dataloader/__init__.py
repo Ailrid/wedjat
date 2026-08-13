@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: metric
+Project: wedjat-metric
 """
 
 import math
@@ -236,7 +236,7 @@ class TiffLoader(IterableDataset):
         for _ in range(len(self.tiff_list)):
             idx = random.randint(0, len(self.tiff_list) - 1)
             current_tiff = self.tiff_list[idx]
-            
+
             with rasterio.open(current_tiff) as src:
 
                 for _ in range(self.iter_times):

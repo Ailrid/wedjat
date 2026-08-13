@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: metric
+Project: wedjat-metric
 """
 
 from dataclasses import asdict
@@ -12,45 +12,42 @@ import torch
 from .interface import Network
 from ..structs import Metric, Tensor4D, Tensor5D, Tensor6D
 
+
 class Shell(Network):
     def __init__(self, model: torch.nn.Module):
         super(Shell, self).__init__()
         self.model = model
 
     def forward(
-            self, anchor: torch.Tensor, true_samples: torch.Tensor
-        ) -> tuple[torch.Tensor, torch.Tensor]:
-            """Input Shapes:
+        self, anchor: torch.Tensor, true_samples: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Input Shapes:
 
-            anchor:        [B, S, C, H, W]       (S = samples_per_yield)
-            true_samples:  [B, S, N, C, H, W]    (N = true_sample_number)
+        anchor:        [B, S, C, H, W]       (S = samples_per_yield)
+        true_samples:  [B, S, N, C, H, W]    (N = true_sample_number)
 
-            Output Shapes:
-                feat_anchor:       [B * S, D]         (D = embedding dimension)
-                feat_true_sample:  [B * S, N, D]
-            """
-            batch_size, samples_per_yield, channels, height, width = anchor.shape
-            num_pos_samples = true_samples.shape[2]
-            total_batch = batch_size * samples_per_yield
+        Output Shapes:
+            feat_anchor:       [B * S, D]         (D = embedding dimension)
+            feat_true_sample:  [B * S, N, D]
+        """
+        batch_size, samples_per_yield, channels, height, width = anchor.shape
+        num_pos_samples = true_samples.shape[2]
+        total_batch = batch_size * samples_per_yield
 
-            # Flatten anchor images to 4D tensor: [B * S, C, H, W]
-            anchor_flat = anchor.reshape(total_batch, channels, height, width)
-            feat_anchor = self.model(anchor_flat)  # Output shape: [B * S, D]
+        # Flatten anchor images to 4D tensor: [B * S, C, H, W]
+        anchor_flat = anchor.reshape(total_batch, channels, height, width)
+        feat_anchor = self.model(anchor_flat)  # Output shape: [B * S, D]
 
-            # Flatten positive samples to 4D tensor: [B * S * N, C, H, W]
-            true_samples_flat = true_samples.reshape(
-                total_batch * num_pos_samples, channels, height, width
-            )
-            feat_true_flat = self.model(
-                true_samples_flat
-            )  # Output shape: [B * S * N, D]
+        # Flatten positive samples to 4D tensor: [B * S * N, C, H, W]
+        true_samples_flat = true_samples.reshape(
+            total_batch * num_pos_samples, channels, height, width
+        )
+        feat_true_flat = self.model(true_samples_flat)  # Output shape: [B * S * N, D]
 
-            # Restore positive features to tensor structure: [B * S, N, D]
-            feat_true_sample = feat_true_flat.reshape(
-                total_batch, num_pos_samples, -1
-            )
+        # Restore positive features to tensor structure: [B * S, N, D]
+        feat_true_sample = feat_true_flat.reshape(total_batch, num_pos_samples, -1)
 
-            return feat_anchor, feat_true_sample
+        return feat_anchor, feat_true_sample
 
     @torch.no_grad()
     def refer(self, anchor: Tensor4D, true_samples: Tensor6D):

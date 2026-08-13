@@ -1,7 +1,33 @@
 [project]
 name = "wedjat-rknn"
 version = "0.1.0"
-description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = []
+requires-python = "==3.12.*"
+dependencies = [
+    "fast-histogram>=0.11",
+    "numpy<=1.26.4",
+    "onnx==1.18.0",
+    "onnxruntime>=1.22.0",
+    "opencv-python>=4.5.5.64",
+    "pandas>=2.3.3",
+    "pillow>=12.3.0",
+    "prettytable>=3.18.0",
+    "protobuf>=4.21.6,<=4.25.4",
+    "psutil>=5.9.0",
+    "rasterio",
+    "rknn3-toolkit",
+    "ruamel-yaml>=0.17.21",
+    "scipy>=1.9.3",
+    "sentencepiece>=0.2.2",
+    "tabulate>=0.10.0",
+    "torch==2.7.0",
+    "tqdm>=4.64.1",
+    "transformers==4.51.3",
+]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[tool.uv.sources]
+rknn3-toolkit = { path = "rknn3_toolkit-1.0.5b2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" }
