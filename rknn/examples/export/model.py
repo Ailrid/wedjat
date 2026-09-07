@@ -168,7 +168,7 @@ if __name__ == "__main__":
     # - "w8a8"
     quantized_dtype = "w8a8"
 
-    model_path = "assets/super.onnx"
+    model_path = "assets/resnet50-v2-7.onnx"
     output_path = "assets/model.rknn"
     dataset_path = "./test_images/dataset.txt"
     image_folder_path = "./test_images"

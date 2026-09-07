@@ -1,7 +1,6 @@
-pub mod errors;
 pub mod estimator;
-pub mod extractor;
-pub mod location;
-pub mod macros;
-pub mod matcher;
+pub mod lightglue;
+pub mod model;
+pub mod superpoint;
 pub mod types;
+pub mod error;

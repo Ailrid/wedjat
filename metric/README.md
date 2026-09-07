@@ -9,7 +9,7 @@
 | 名称          | 核心功能                                             |
 | ------------- | ---------------------------------------------------- |
 | metric.core   | 模型定义、损失定义、数据加载、精度评估               |
-| metric.export | ONNX模型导出、ONNX推理、Qdrant数据库速度与精确度评估 |
+| metric.export | 度量模型、superpoint、lightglue的ONNX模型导出、ONNX推理、Qdrant数据库入库、速度与精确度评估 |
 | metric.train  | 模型训练流程、训练日志、模型保存加载                 |
 
 ## 其他

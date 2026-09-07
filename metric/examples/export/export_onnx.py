@@ -6,16 +6,16 @@ Project: wedjat-metric
 
 import torch
 
-from metric.core import Shell, ResNet50, ViT, ConvNeXtTiny
+from metric.core import Shell, ResNet50V2, ViT, ConvNeXtTiny
 
-checkpoint_path = "checkpoints/2026-07-03-23-02-13"
+# checkpoint_path = "checkpoints/2026-07-03-23-02-13"
 
 out_dim = 512
-shell = Shell(ResNet50(out_dim))
+shell = Shell(ResNet50V2(out_dim))
 # shell = Shell(ViT(out_dim))
 # shell = Shell(ConvNeXtTiny(out_dim))
 
-shell.load_checkpoint(checkpoint_path)
+# shell.load_checkpoint(checkpoint_path)
 model = shell.model
 
 dummy_input = torch.randn(1, 3, 256, 256)
@@ -24,7 +24,7 @@ model.eval()
 torch.onnx.export(
     model,
     dummy_input,  # type: ignore
-    "model.onnx",
+    "./assets/model.onnx",
     opset_version=12,
     input_names=["input"],
     output_names=["output"],

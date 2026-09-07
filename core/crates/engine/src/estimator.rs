@@ -1,13 +1,3 @@
-/*
- * @Author: ShirahaYuki  shirhayuki2002@gmail.com
- * @Date: 2026-01-15 13:12:59
- * @LastEditors: ShirahaYuki  shirhayuki2002@gmail.com
- * @LastEditTime: 2026-04-03 10:17:19
- * @FilePath: /map_matching/src/estimator.rs
- * @Description:位置评估算法，负责初始化定位和评估位置可靠性
- *
- * Copyright (c) 2026 by ShirahaYuki, All Rights Reserved.
- */
 use crate::types::{ENUPoint, PredictPoint, PredictResult};
 use nalgebra::{Matrix3, Vector3};
 

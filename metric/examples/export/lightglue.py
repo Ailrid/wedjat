@@ -3,7 +3,6 @@ Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
 Project: wedjat-metric
 """
-
 import cv2
 import numpy as np
 import torch
@@ -16,17 +15,19 @@ def export_lightglue(
     output_path: str = "lightglue_static.onnx",
 ) -> None:
     model = LightGlue().eval()
-    dummy_keypoints = torch.randn(2, 1024, 2, dtype=torch.float32)
-    dummy_descriptors = torch.randn(2, 1024, 256, dtype=torch.float32)
+    k1 = torch.randn(1, 256, 2, dtype=torch.float32)
+    k2 = torch.randn(1, 256, 2, dtype=torch.float32)
+    d1 = torch.randn(1, 256, 256, dtype=torch.float32)
+    d2 = torch.randn(1, 256, 256, dtype=torch.float32)
 
     torch.onnx.export(
         model,
-        (dummy_keypoints, dummy_descriptors),
+        (k1, k2, d1, d2),
         output_path,
         export_params=True,
         opset_version=14,
         do_constant_folding=True,
-        input_names=["keypoints", "descriptors"],
+        input_names=["keypoints0", "keypoints1", "descriptors0", "descriptors1"],
         output_names=["scores"],
         dynamic_axes=None,
     )
@@ -47,7 +48,7 @@ def preprocess_image(
 def extract_features_single_image(
     sp_session: ort.InferenceSession,
     image_path: str,
-    num_keypoints: int = 1024,
+    num_keypoints: int = 256,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     img_data = preprocess_image(image_path, target_size=(256, 256))
 
@@ -152,7 +153,7 @@ def run_matching_pipeline(
     output_image_path: str = "match_result.png",
     warp_image_path: str = "warp_result.png",
     match_threshold: float = 0.0,
-    num_keypoints: int = 1024,
+    num_keypoints: int = 256,
 ) -> None:
     sp_session = ort.InferenceSession(sp_onnx_path, providers=["CPUExecutionProvider"])
     lg_session = ort.InferenceSession(lg_onnx_path, providers=["CPUExecutionProvider"])
@@ -164,17 +165,17 @@ def run_matching_pipeline(
         sp_session, img1_path, num_keypoints
     )
 
-    lg_kpts_input = np.concatenate([kpts0, kpts1], axis=0)
-    lg_desc_input = np.concatenate([desc0, desc1], axis=0)
 
     lg_inputs = {
-        "keypoints": lg_kpts_input,
-        "descriptors": lg_desc_input,
+        "keypoints0": kpts0,
+        "keypoints1": kpts1,
+        "descriptors0": desc0,
+        "descriptors1": desc1,
     }
     lg_outputs = lg_session.run(["scores"], lg_inputs)
     log_assignment = lg_outputs[0]
 
-    scores = np.exp(log_assignment[0]) # type: ignore
+    scores = np.exp(log_assignment[0])  # type: ignore
 
     max_indices0 = np.argmax(scores, axis=1)
     max_scores0 = np.max(scores, axis=1)
