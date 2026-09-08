@@ -1,3 +1,9 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: wedjat-metric
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -75,4 +81,3 @@ class SuperPoint(nn.Module):
         descriptors = F.normalize(descriptors, p=2, dim=1)  # (B, 256, H/8, W/8)
 
         return scores, descriptors
-

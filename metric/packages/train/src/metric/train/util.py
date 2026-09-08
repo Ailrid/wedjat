@@ -1,3 +1,9 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: wedjat-metric
+"""
+
 import logging
 from logging import getLogger
 import re
@@ -6,7 +12,6 @@ import os
 import json
 from dataclasses import asdict
 from .components import LightParameters, TrainingState
-from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -20,7 +25,6 @@ YELLOW = "\x1b[33m"
 MAGENTA = "\x1b[35m"
 CYAN = "\x1b[36m"
 GRAY = "\x1b[90m"
-
 
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")

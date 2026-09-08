@@ -1,8 +1,14 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: wedjat-metric
+"""
+
 import os
 import torch
 import numpy as np
 
-# 1. 动态借调 Torch 的库路径 (解决 libcublas.so 找不到的问题)
+
 torch_lib_path: str = os.path.join(os.path.dirname(torch.__file__), "lib")
 if os.path.exists(torch_lib_path):
     os.environ["LD_LIBRARY_PATH"] = (

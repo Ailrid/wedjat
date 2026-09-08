@@ -1,3 +1,9 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: wedjat-metric
+"""
+
 import os
 import time
 import uuid
