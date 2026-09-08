@@ -6,7 +6,6 @@ Project: wedjat-rknn
 
 import os
 import sys
-import numpy as np
 from rknn.api import RKNN
 
 
@@ -62,32 +61,6 @@ def convert_onnx_to_rknn_fp16(
     rknn.release()
 
 
-# def verify_fp16_rknn_model(rknn_path):
-#     """Run inference test on PC simulator to ensure output stability."""
-#     print(f"--> Initializing RKNN simulator for verification...")
-#     rknn = RKNN(verbose=False)
-#     ret = rknn.load_rknn(rknn_path)
-#     if ret != 0:
-#         print("Error: Load RKNN model failed during verification!")
-#         return
-
-#     ret = rknn.init_runtime(target=None)  # Run on PC Simulator
-#     if ret != 0:
-#         print("Error: Init runtime failed!")
-#         return
-
-#     # Prepare dummy FP32 numpy array matching static ONNX shapes
-#     dummy_kpts = np.random.randn(2, 1024, 2).astype(np.float32)
-#     dummy_descs = np.random.randn(2, 1024, 256).astype(np.float32)
-
-#     print("--> Running inference test on Simulator...")
-#     outputs = rknn.inference(inputs=[dummy_kpts, dummy_descs])
-
-#     print(f"Success: Simulator inference complete.")
-#     print(f"Output shape: {outputs[0].shape}")  # Should be (1, 1024, 1024)
-#     rknn.release()
-
-
 if __name__ == "__main__":
     onnx_file = "assets/lightglue.onnx"
     rknn_file = "assets/lightglue.rknn"
@@ -99,5 +72,3 @@ if __name__ == "__main__":
         target_platform=platform,
     )
 
-    # Optional: Run quick simulator test
-    # verify_fp16_rknn_model(rknn_file)

@@ -1,8 +1,0 @@
-{
-  "tensor_quant_bits": {
-    "/avgpool/Pow_output_0": "float16",
-    "/avgpool/Pow_1_output_0": "float16",
-    "/bn/BatchNormalization_output_0-rs": "float16",
-    "/ReduceL2_2lpnorm2": "float16"
-  }
-}
