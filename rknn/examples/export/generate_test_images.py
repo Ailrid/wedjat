@@ -13,7 +13,7 @@ from PIL import Image
 
 
 def random_crop_tiff(
-    tif_path, output_dir, dataset_txt_path, crop_size=(256, 256), num_crops=10
+    tif_path, output_dir, dataset_txt_path, crop_size=(224, 224), num_crops=10
 ):
     """Randomly crop patches from a TIFF file and automatically generate RKNN dataset.txt."""
     if not os.path.exists(tif_path):
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     tif_path = "assets/test.tif"
     output_dir = "./test_images"
     dataset_txt_path = "./test_images/dataset.txt"
-    crop_size = (256, 256)  # (Height, Width)
+    crop_size = (224, 224)  # (Height, Width)
     num_crops = 250
 
     random_crop_tiff(

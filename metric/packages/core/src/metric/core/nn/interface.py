@@ -5,7 +5,7 @@ Project: wedjat-metric
 """
 
 from abc import abstractmethod
-from ..structs import Metric, Tensor5D, Tensor6D
+from ..structs import RankMetric, Tensor5D, Tensor6D
 import torch
 
 
@@ -24,5 +24,5 @@ class Network(torch.nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def save_checkpoint(self, path: str, metric: Metric) -> None:
+    def save_checkpoint(self, path: str, metric: RankMetric) -> None:
         raise NotImplementedError

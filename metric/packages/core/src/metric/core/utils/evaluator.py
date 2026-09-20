@@ -1,199 +1,120 @@
-"""
-Copyright (c) 2026-present Ailrid.
-Licensed under the Apache License, Version 2.0.
-Project: wedjat-metric
-"""
-
+from typing import List, Tuple
 import torch
 import torch.nn.functional as F
-from ..structs import Metric
-import torch
-import torch.nn.functional as F
+from metric.core.structs import RankMetric
 
 
 class MetricEvaluator:
 
-    def __init__(self, steps: int = 100, device: str = "cuda"):
-        # Store thresholds tensor
-        self.steps = steps
+    def __init__(self, device: str = "cuda"):
         self.default_device = device
-        self.thresholds = torch.linspace(0.0, 1.0, steps=steps)
         self.reset()
 
     def reset(self):
-        """Resets all internal accumulators for a new evaluation epoch."""
-        self.total_pos = 0
-        self.total_neg = 0
-        self.tp_counts = torch.zeros(self.steps, dtype=torch.long)
-        self.tn_counts = torch.zeros(self.steps, dtype=torch.long)
+        """Resets all internal storage for a new evaluation epoch."""
+        self.anchors_list: List[torch.Tensor] = []
+        self.samples_list: List[torch.Tensor] = []
+        self.labels_list: List[torch.Tensor] = []
 
     @torch.no_grad()
-    def update(self, feat_anchor: torch.Tensor, feat_true_sample: torch.Tensor):
-        """Inputs:
+    def update(
+        self,
+        feat_anchor: torch.Tensor,
+        feat_true_sample: torch.Tensor,
+        labels: torch.Tensor,
+    ):
+        """Accumulates embeddings and labels from mini-batches during evaluation.
 
-        feat_anchor: [B_total, D]
-        feat_true_sample: [B_total, N, D]
+        Inputs:
+        feat_anchor: [B * S, D] - Batch of anchor features
+        feat_true_sample: [B * S, N, D] or [B * S, D] - Batch of positive target sample
+        labels: [B] or [B * S]
         """
-        b_total, num_pos_samples, dim = feat_true_sample.shape
-        device = feat_anchor.device
+        if feat_true_sample.dim() == 2:
+            feat_true_sample = feat_true_sample.unsqueeze(1)
 
-        # Dynamically align thresholds to input device
-        if self.thresholds.device != device:
-            self.thresholds = self.thresholds.to(device)
+        labels_flat = labels.detach().cpu().reshape(-1)
+        feat_anchor_cpu = feat_anchor.detach().cpu()
+        feat_true_sample_cpu = feat_true_sample.detach().cpu()
 
-        # L2 normalize features to calculate cosine similarity safely
-        feat_anchor = F.normalize(feat_anchor, p=2, dim=-1)
-        feat_true_sample = F.normalize(feat_true_sample, p=2, dim=-1)
+        num_anchors = feat_anchor_cpu.shape[0]
+        num_labels = labels_flat.shape[0]
 
-        # Flatten positive samples to 2D tensor: [B_total * N, D]
-        feat_true_flat = feat_true_sample.reshape(-1, dim)
-
-        # Calculate all-to-all similarity matrix: [B_total, B_total * N]
-        sim_matrix = torch.matmul(feat_anchor, feat_true_flat.T)
-
-        # Create a boolean mask for positive pairs using in-batch indices
-        row_indices = torch.arange(b_total, device=device).unsqueeze(1)
-        col_indices = torch.arange(b_total * num_pos_samples, device=device).unsqueeze(
-            0
-        )
-        pos_mask = (col_indices // num_pos_samples) == row_indices
-
-        # Extract positive and in-batch negative similarity values
-        sim_pos = sim_matrix[pos_mask]
-        sim_neg = sim_matrix[~pos_mask]
-
-        # Track total counts across validation batches
-        self.total_pos += sim_pos.numel()
-        self.total_neg += sim_neg.numel()
-
-        # Vectorized threshold matching without giant meshgrid allocation
-        # Broadcasting logic fixed with device matching
-        tp = (sim_pos.unsqueeze(-1) >= self.thresholds.view(1, -1)).sum(dim=0)
-        tn = (sim_neg.unsqueeze(-1) < self.thresholds.view(1, -1)).sum(dim=0)
-
-        # Accumulate metrics (keep on CPU to reduce VRAM consumption)
-        self.tp_counts += tp.cpu()
-        self.tn_counts += tn.cpu()
-
-    def compute(self):
-        """Calculates final curves and identifies the peak operational metrics."""
-        if self.total_pos == 0 or self.total_neg == 0:
-            raise ValueError("No positive or negative samples were found.")
-
-        # Calculate metrics for all thresholds simultaneously
-        tpr = self.tp_counts.float() / self.total_pos
-        fpr = (self.total_neg - self.tn_counts.float()) / self.total_neg
-        accuracy = (self.tp_counts + self.tn_counts).float() / (
-            self.total_pos + self.total_neg
-        )
-
-        # Identify the peak accuracy and its corresponding threshold index
-        best_idx = torch.argmax(accuracy)
-
-        return Metric(
-            accuracy[best_idx].item(),
-            self.thresholds[best_idx].item(),
-            tpr[best_idx].item(),
-            fpr[best_idx].item(),
-            self.thresholds.cpu().numpy().tolist(),
-            accuracy.cpu().numpy().tolist(),
-            tpr.cpu().numpy().tolist(),
-            fpr.cpu().numpy().tolist(),
-        )
-
-    def print_metrics(self) -> tuple[Metric, str]:
-        """
-        Computes metrics and generates a styled ASCII evaluation report string.
-        Returns a tuple containing the Metric dataclass instance and the report string.
-        """
-        metrics: Metric = self.compute()
-        report_lines = []
-
-        # Report Header
-        report_lines.append("\n" + "=" * 66)
-        report_lines.append(" METRIC LEARNING VERIFICATION REPORT ".center(66, "="))
-        report_lines.append("=" * 66)
-
-        # Summary Table Components
-        top_line = "┌" + "─" * 24 + "┬" + "─" * 38 + "┐"
-        mid_divider = "├" + "─" * 24 + "┼" + "─" * 38 + "┤"
-        bottom_line = "└" + "─" * 24 + "┴" + "─" * 38 + "┘"
-
-        report_lines.append(top_line)
-        report_lines.append(
-            f"│ {'Operational Metric':^22} │ {'Optimal Operational Value'::^22} │"
-        )
-        report_lines.append(mid_divider)
-
-        # Highlight Peak Accuracy with standard ANSI bold green color formatting
-        report_lines.append(
-            f"│ {'Max Accuracy':<22} │ \033[1;32m{metrics.max_accuracy * 100::<22} %\033[0m │"
-        )
-        report_lines.append(
-            f"│ {'Best Threshold (Tau)':<22} │ {metrics.best_threshold::<22}   │"
-        )
-        report_lines.append(
-            f"│ {'TPR at Best Threshold':<22} │ {metrics.tpr_at_best * 100::<22} % │"
-        )
-        report_lines.append(
-            f"│ {'FPR at Best Threshold':<22} │ {metrics.fpr_at_best * 100::<22} % │"
-        )
-        report_lines.append(bottom_line)
-
-        # Curve Sampling Section (Sample 10 checkpoints across the full sweep)
-        report_lines.append("\n" + "=" * 66)
-        report_lines.append(" THRESHOLD SWEEP CURVE SAMPLE ".center(66, "="))
-        report_lines.append("=" * 66)
-
-        curve_top = (
-            "┌" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 16 + "┐"
-        )
-        curve_mid = (
-            "├" + "─" * 14 + "┼" + "─" * 14 + "┼" + "─" * 14 + "┼" + "─" * 16 + "┤"
-        )
-        curve_bottom = (
-            "└" + "─" * 14 + "┴" + "─" * 14 + "┴" + "─" * 14 + "┴" + "─" * 16 + "┘"
-        )
-
-        report_lines.append(curve_top)
-        report_lines.append(
-            f"│ {'Threshold':^12} │ {'Accuracy (%)':^12} │ {'TPR (%)':^12} │ {'FPR (%)':^14} │"
-        )
-        report_lines.append(curve_mid)
-
-        total_steps = len(metrics.thresholds)
-        # Sample up to 10 points uniformly across the curve to keep log highly scannable
-        sample_stride = max(1, total_steps // 10)
-        sample_indices = list(range(0, total_steps, sample_stride))
-
-        # Ensure the final boundary threshold is always captured in report
-        if (total_steps - 1) not in sample_indices:
-            sample_indices.append(total_steps - 1)
-
-        for idx in sample_indices:
-            t_val = metrics.thresholds[idx]
-            acc_val = metrics.accuracy_curve[idx] * 100
-            tpr_val = metrics.tpr_curve[idx] * 100
-            fpr_val = metrics.fpr_curve[idx] * 100
-
-            # Dim boundaries where thresholds are 0.0 or 1.0 using dark gray ANSI styling
-            if idx == 0 or idx == total_steps - 1:
-                report_lines.append(
-                    f"│ \033[90m{t_val:^12.2f}\033[0m │ "
-                    f"\033[90m{acc_val:^12.2f}\033[0m │ "
-                    f"\033[90m{tpr_val:^12.2f}\033[0m │ "
-                    f"\033[90m{fpr_val:^14.2f}\033[0m │"
-                )
+        if num_anchors != num_labels:
+            if num_anchors % num_labels == 0:
+                scale = num_anchors // num_labels
+                labels_flat = labels_flat.repeat_interleave(scale)
             else:
-                report_lines.append(
-                    f"│ {t_val:^12.2f} │ "
-                    f"{acc_val:^12.2f} │ "
-                    f"{tpr_val:^12.2f} │ "
-                    f"{fpr_val:^14.2f} │"
+                raise ValueError(
+                    f"Label count ({num_labels}) cannot be aligned with anchor count ({num_anchors})."
                 )
 
-        report_lines.append(curve_bottom)
-        report_lines.append("=" * 66 + "\n")
+        self.anchors_list.append(feat_anchor_cpu)
+        self.samples_list.append(feat_true_sample_cpu)
+        self.labels_list.append(labels_flat)
 
-        report_str = "\n".join(report_lines)
-        return metrics, report_str
+    @torch.no_grad()
+    def compute(self) -> Tuple[RankMetric, str]:
+        """Calculates global Rank-1 to Rank-5 metrics and returns evaluation summary."""
+        if not self.anchors_list or not self.samples_list:
+            raise ValueError("No batch samples were recorded.")
+
+        all_anchors = torch.cat(self.anchors_list, dim=0)
+        all_samples = torch.cat(self.samples_list, dim=0)
+        all_labels = torch.cat(self.labels_list, dim=0).to(self.default_device)
+
+        total_queries, num_pos_samples, dim = all_samples.shape
+
+        all_anchors = F.normalize(all_anchors, p=2, dim=-1)
+        all_samples = F.normalize(all_samples, p=2, dim=-1)
+
+        all_samples_flat = all_samples.reshape(-1, dim)
+
+        anchors_dev = all_anchors.to(self.default_device)
+        samples_flat_dev = all_samples_flat.to(self.default_device)
+
+        query_labels = all_labels
+        gallery_labels = all_labels.repeat_interleave(num_pos_samples)
+
+        sim_matrix = torch.matmul(anchors_dev, samples_flat_dev.T)
+
+        k_max = min(5, sim_matrix.size(1))
+        top5_indices = torch.topk(sim_matrix, k=k_max, dim=1).indices
+
+        pred_labels = gallery_labels[top5_indices]
+        correct_matches = pred_labels == query_labels.unsqueeze(1)
+
+        rank_hits = (
+            torch.cummax(correct_matches, dim=1).values.float().mean(dim=0) * 100.0
+        )
+        rank_accuracies = rank_hits.tolist()
+
+        while len(rank_accuracies) < 5:
+            last_val = rank_accuracies[-1] if rank_accuracies else 0.0
+            rank_accuracies.append(last_val)
+
+        metric = RankMetric(
+            rank1=rank_accuracies[0],
+            rank2=rank_accuracies[1],
+            rank3=rank_accuracies[2],
+            rank4=rank_accuracies[3],
+            rank5=rank_accuracies[4],
+        )
+
+        summary_lines = [
+            "=" * 45,
+            "      CROSS-VIEW RETRIEVAL EVALUATION       ",
+            "=" * 45,
+            f"Total Query Features    : {total_queries}",
+            f"Total Gallery Samples   : {all_samples_flat.size(0)}",
+            "-" * 45,
+            f"  Rank-1 Accuracy : {metric.rank1:6.2f}%",
+            f"  Rank-2 Accuracy : {metric.rank2:6.2f}%",
+            f"  Rank-3 Accuracy : {metric.rank3:6.2f}%",
+            f"  Rank-4 Accuracy : {metric.rank4:6.2f}%",
+            f"  Rank-5 Accuracy : {metric.rank5:6.2f}%",
+            "=" * 45,
+        ]
+
+        report_str = "\n".join(summary_lines)
+        return metric, report_str

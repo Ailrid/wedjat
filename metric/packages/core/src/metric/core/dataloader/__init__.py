@@ -143,21 +143,10 @@ class TiffLoader(IterableDataset):
         with rasterio.open(tiff_path) as src:
             if src.is_tiled:
                 return
-            print(f"Converting {tiff_path} to tiled TIFF...")
-            profile = src.profile.copy()
-            data = src.read()
 
-        profile.update(
-            tiled=True,
-            blockxsize=tile_size,
-            blockysize=tile_size,
-        )
-
-        temp_path = tiff_path + ".tmp"
-        with rasterio.open(temp_path, "w", **profile) as dst:
-            dst.write(data)
-
-        os.replace(temp_path, tiff_path)
+            raise ValueError(
+                f"{tiff_path} is not tiled. Please use tiler.py to tile it."
+            )
 
     def _sample_single_pair(
         self, src: rasterio.DatasetReader, width: int, height: int
@@ -232,7 +221,6 @@ class TiffLoader(IterableDataset):
         return len(self.tiff_list) * self.iter_times
 
     def __iter__(self):
-        tasks = [(tiff, i) for tiff in self.tiff_list for i in range(self.iter_times)]
 
         for _ in range(len(self.tiff_list)):
             idx = random.randint(0, len(self.tiff_list) - 1)
@@ -240,7 +228,7 @@ class TiffLoader(IterableDataset):
 
             with rasterio.open(current_tiff) as src:
 
-                for _ in range(self.iter_times):
+                for i in range(self.iter_times):
                     width, height = src.width, src.height
 
                     if width < 2 * self.margin or height < 2 * self.margin:
@@ -254,7 +242,11 @@ class TiffLoader(IterableDataset):
                         anchors.append(anchor_tensor)
                         positives.append(pos_tensor)
 
-                    yield torch.stack(anchors), torch.stack(positives)
+                    yield torch.stack(anchors), torch.stack(positives), torch.tensor(
+                        [
+                            idx * self.iter_times + i,
+                        ]
+                    )
 
 
 def get_tiff_dataloader(
@@ -307,12 +299,9 @@ def get_tiff_dataloader(
     )
 
 
-
-
-
 class CrossViewDataset(Dataset):
     """
-    Dataset loader for cross-view (Drone & Satellite) matching dataset.
+    Dataset loader for cross-view (Drone & Satellite) matching dataset aligned with TiffLoader format.
 
     Directory structure expected:
     dataset_dir/
@@ -330,8 +319,9 @@ class CrossViewDataset(Dataset):
     def __init__(
         self,
         root_dir: str,
-        input_size: Tuple[int, int] = (224, 224),
-        drone_samples_per_location: int = 1,
+        input_size: Tuple[int, int] = (256, 256),
+        samples_per_yield: int = 2,
+        true_sample_number: int = 2,
         max_rotation: float = 30.0,
         max_pitch: float = 10.0,
         transform=None,
@@ -339,8 +329,9 @@ class CrossViewDataset(Dataset):
     ):
         super().__init__()
         self.root_dir = root_dir
-        self.input_size = input_size  # (height, width)
-        self.drone_samples_per_location = drone_samples_per_location
+        self.input_size = input_size
+        self.samples_per_yield = samples_per_yield
+        self.true_sample_number = true_sample_number
         self.max_rotation = max_rotation
         self.max_pitch = max_pitch
         self.transform = transform
@@ -349,7 +340,6 @@ class CrossViewDataset(Dataset):
         self.satellite_dir = os.path.join(self.root_dir, "satellite")
         self.drone_dir = os.path.join(self.root_dir, "drone")
 
-        # Collect matching location folder names (e.g. '000001', '000002')
         sat_folders = {
             f
             for f in os.listdir(self.satellite_dir)
@@ -366,7 +356,6 @@ class CrossViewDataset(Dataset):
         if len(self.location_ids) == 0:
             raise ValueError(f"No matching location folders found in {self.root_dir}")
 
-        # Pre-index image file paths for quick loading
         self.dataset_index = []
         for loc_id in self.location_ids:
             sat_loc_path = os.path.join(self.satellite_dir, loc_id)
@@ -387,15 +376,14 @@ class CrossViewDataset(Dataset):
                 self.dataset_index.append(
                     {
                         "id": loc_id,
-                        "satellite": sat_images[0],  # Take the single satellite image
-                        "drone": drone_images,  # Keep all drone images list
+                        "satellite": sat_images[0],
+                        "drone": drone_images,
                     }
                 )
 
     def _get_3d_perspective_matrix(
         self, w: int, h: int, pitch: float, roll: float, yaw: float, fov: float = 60.0
     ):
-        """Calculate 3D homography transformation matrix from camera pose."""
         f = (w / 2.0) / math.tan(math.radians(fov / 2.0))
         K = np.array([[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]], dtype=np.float32)
         K_inv = np.linalg.inv(K)
@@ -428,7 +416,6 @@ class CrossViewDataset(Dataset):
         return (K @ R @ K_inv).astype(np.float32)
 
     def _apply_perspective(self, img: np.ndarray) -> np.ndarray:
-        """Apply 3D perspective distortion for augmentation during training."""
         h, w = img.shape[:2]
         pitch = np.random.uniform(0, self.max_pitch)
         roll = np.random.uniform(-10, 10)
@@ -448,17 +435,14 @@ class CrossViewDataset(Dataset):
     def _load_and_preprocess_image(
         self, img_path: str, is_drone: bool = False
     ) -> torch.Tensor:
-        """Load image from disk, resize, apply optional geometric warping, and convert to Tensor."""
         img = cv2.imread(img_path)
         if img is None:
             raise FileNotFoundError(f"Failed to read image at: {img_path}")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Apply perspective distortion during training (e.g. for drone images)
         if self.is_train and is_drone and (self.max_pitch > 0 or self.max_rotation > 0):
             img = self._apply_perspective(img)
 
-        # Resize to specified target size (width, height)
         target_w, target_h = self.input_size
         if (img.shape[1], img.shape[0]) != (target_w, target_h):
             img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
@@ -470,29 +454,23 @@ class CrossViewDataset(Dataset):
 
         return tensor_img
 
-    def __len__(self) -> int:
-        return len(self.dataset_index)
-
-    def __getitem__(self, idx: int):
+    def _sample_single_location(self, idx: int):
         item = self.dataset_index[idx]
 
-        # Load satellite image
+        # Load single satellite image as anchor tensor
         sat_tensor = self._load_and_preprocess_image(item["satellite"], is_drone=False)
 
-        # Sample drone image(s)
+        # Sample drone images as positive tensors
         drone_paths = item["drone"]
         if self.is_train:
-            # Randomly select N drone images if multiple available
             selected_drone_paths = random.choices(
-                drone_paths, k=self.drone_samples_per_location
+                drone_paths, k=self.true_sample_number
             )
         else:
-            # During eval/test, select deterministically or all available up to specified count
-            selected_drone_paths = drone_paths[: self.drone_samples_per_location]
-            if len(selected_drone_paths) < self.drone_samples_per_location:
-                # Fill up if not enough samples
+            selected_drone_paths = drone_paths[: self.true_sample_number]
+            if len(selected_drone_paths) < self.true_sample_number:
                 selected_drone_paths += [drone_paths[0]] * (
-                    self.drone_samples_per_location - len(selected_drone_paths)
+                    self.true_sample_number - len(selected_drone_paths)
                 )
 
         drone_tensors = [
@@ -500,24 +478,35 @@ class CrossViewDataset(Dataset):
             for path in selected_drone_paths
         ]
 
-        if self.drone_samples_per_location == 1:
-            drone_out = drone_tensors[0]
-        else:
-            drone_out = torch.stack(drone_tensors)
+        return sat_tensor, torch.stack(drone_tensors)
 
-        return sat_tensor, drone_out, item["id"]
+    def __len__(self) -> int:
+        return len(self.dataset_index)
+
+    def __getitem__(self, _: int):
+        anchors, positives, curr_idxs = [], [], []
+
+        # Aggregate samples_per_yield locations into a single item output
+        for _ in range(self.samples_per_yield):
+            curr_idx = random.randint(0, len(self.dataset_index) - 1)
+            anchor, positive = self._sample_single_location(curr_idx)
+            anchors.append(anchor)
+            positives.append(positive)
+            curr_idxs.append(curr_idx)
+
+        return torch.stack(anchors), torch.stack(positives), torch.tensor(curr_idxs)
 
 
 def get_cross_view_dataloader(
     root_dir: str,
     input_size: Tuple[int, int] = (256, 256),
-    batch_size: int = 8,
-    drone_samples_per_location: int = 1,
+    batch_size: int = 2,
+    samples_per_yield: int = 2,
+    true_sample_number: int = 2,
     is_train: bool = True,
     num_workers: int = 4,
     shuffle: Optional[bool] = None,
 ):
-    """DataLoader builder helper function."""
     if is_train:
         tensor_transforms = v2.Compose(
             [
@@ -538,7 +527,8 @@ def get_cross_view_dataloader(
     dataset = CrossViewDataset(
         root_dir=root_dir,
         input_size=input_size,
-        drone_samples_per_location=drone_samples_per_location,
+        samples_per_yield=samples_per_yield,
+        true_sample_number=true_sample_number,
         max_rotation=30.0 if is_train else 0.0,
         max_pitch=10.0 if is_train else 0.0,
         transform=tensor_transforms,

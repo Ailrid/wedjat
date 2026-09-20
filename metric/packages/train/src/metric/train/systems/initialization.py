@@ -8,19 +8,22 @@ import torch
 import time
 import os
 from torch import optim
-from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from virid.core import system, ViridApp, MessageWriter
 
 from metric.core import (
     Shell,
     MetricEvaluator,
-    TiffLoader,
     MSLoss,
     ResNet50,
     ViT,
     ConvNeXtTiny,
 )
+from metric.core.dataloader import (
+    get_cross_view_dataloader,
+    get_tiff_dataloader,
+)
+from metric.core.nn import Classify
 
 from ..messages.initialization import (
     CreateEvnMessage,
@@ -78,30 +81,53 @@ def create_dataset(
     light_params: LightParameters,
 ) -> None:
     dataset_params = light_params.dataset_params
+    dataset_type = dataset_params.dataset_type
+    if dataset_type == "tiff":
+        train_loader = get_tiff_dataloader(
+            dataset_params.train_folder,
+            dataset_params.input_size,
+            dataset_params.batch_size,
+            dataset_params.samples_per_yield,
+            dataset_params.true_sample_number,
+            is_train=True,
+            num_workers=dataset_params.num_workers,
+        )
+        test_loader = get_tiff_dataloader(
+            dataset_params.train_folder,
+            dataset_params.input_size,
+            dataset_params.batch_size,
+            dataset_params.samples_per_yield,
+            dataset_params.true_sample_number,
+            is_train=False,
+            num_workers=dataset_params.num_workers,
+        )
+    elif dataset_type == "cross_view":
+        train_loader = get_cross_view_dataloader(
+            dataset_params.train_folder,
+            (dataset_params.input_size, dataset_params.input_size),
+            dataset_params.batch_size,
+            dataset_params.samples_per_yield,
+            dataset_params.true_sample_number,
+            is_train=True,
+            num_workers=dataset_params.num_workers,
+        )
+        test_loader = get_cross_view_dataloader(
+            dataset_params.test_folder,
+            (dataset_params.input_size, dataset_params.input_size),
+            dataset_params.batch_size,
+            dataset_params.samples_per_yield,
+            dataset_params.true_sample_number,
+            is_train=False,
+            num_workers=dataset_params.num_workers,
+        )
+    else:
+        raise Exception(
+            f"Invalid dataset type: {dataset_type}, please check your config file."
+        )
 
-    train_loader = DataLoader(
-        TiffLoader(
-            dataset_params.train_folder,
-            dataset_params.input_size,
-            dataset_params.iter_times,
-            dataset_params.samples_per_yield,
-            dataset_params.true_sample_number,
-        ),
-        batch_size=dataset_params.batch_size,
-        num_workers=dataset_params.num_workers,
-    )
-    test_loader = DataLoader(
-        TiffLoader(
-            dataset_params.train_folder,
-            dataset_params.input_size,
-            dataset_params.iter_times,
-            dataset_params.samples_per_yield,
-            dataset_params.true_sample_number,
-        ),
-        batch_size=dataset_params.batch_size,
-    )
     app.spawn(
         DatasetConfig(
+            dataset_type=dataset_type,
             batch_size=dataset_params.batch_size,
             input_size=dataset_params.input_size,
             train_loader=train_loader,
@@ -138,7 +164,15 @@ def create_model(
             f"Invalid model type: {message.model_type}, please check your config file."
         )
 
-    model = Shell(net).to(env_params.device)
+    if (
+        light_params.dataset_params.dataset_type == "cross_view"
+        and model_params.num_classes is not None
+    ):
+        classify = Classify(model_params.out_dims, model_params.num_classes)
+    else:
+        classify = None
+
+    model = Shell(net, classify).to(env_params.device)
     loss = MSLoss().to(env_params.device)
 
     app.spawn(

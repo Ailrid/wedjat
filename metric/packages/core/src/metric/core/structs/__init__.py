@@ -17,12 +17,14 @@ Tensor1D: TypeAlias = Annotated[torch.Tensor, "Shape: (B,)"]
 
 
 @dataclass
+class RankMetric:
+    rank1: float = 0.0
+    rank2: float = 0.0
+    rank3: float = 0.0
+    rank4: float = 0.0
+    rank5: float = 0.0
+
+
+@dataclass
 class Metric:
-    max_accuracy: float = 0
-    best_threshold: float = 0
-    tpr_at_best: float = 0
-    fpr_at_best: float = 0
-    thresholds: list[float] = field(default_factory=list)
-    accuracy_curve: list[float] = field(default_factory=list)
-    tpr_curve: list[float] = field(default_factory=list)
-    fpr_curve: list[float] = field(default_factory=list)
+    metric: list[RankMetric] = field(default_factory=lambda: list())

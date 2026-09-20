@@ -6,18 +6,17 @@ Project: wedjat-metric
 
 import torch
 
-from metric.core import Shell, ResNet50V2, ViT, ConvNeXtTiny
+from metric.core import Shell, ResNet50V2, ViT, ConvNeXtTiny, Classify
 
-checkpoint_path = "assets/vit.pth"
+checkpoint_path = "checkpoints/2026-09-20-15-29-22"
 
 out_dim = 512
-# shell = Shell(ResNet50V2(out_dim))
-shell = Shell(ViT(out_dim))
-# shell = Shell(ConvNeXtTiny(out_dim))
+class_num = 861
 
-# shell.load_checkpoint(checkpoint_path)
-model = ViT(out_dim)
-# model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+shell = Shell(ViT(out_dim), Classify(out_dim, class_num))
+shell.load_checkpoint(checkpoint_path)
+
+model = shell.model
 
 dummy_input = torch.randn(1, 3, 224, 224)
 model.eval()
@@ -25,7 +24,7 @@ model.eval()
 torch.onnx.export(
     model,
     dummy_input,  # type: ignore
-    "assets/vit.pth",
+    "assets/vit.onnx",
     opset_version=14,
     input_names=["input"],
     output_names=["output"],

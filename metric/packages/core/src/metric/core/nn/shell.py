@@ -7,20 +7,24 @@ Project: wedjat-metric
 from dataclasses import asdict
 import json
 import os
-
+from typing import Optional
 import torch
 from .interface import Network
-from ..structs import Metric, Tensor4D, Tensor5D, Tensor6D
+from ..structs import RankMetric, Tensor4D, Tensor6D
 
 
 class Shell(Network):
-    def __init__(self, model: torch.nn.Module):
+
+    def __init__(self, model: torch.nn.Module, classify: Optional[torch.nn.Module]):
         super(Shell, self).__init__()
         self.model = model
+        self.classify = classify
 
     def forward(
-        self, anchor: torch.Tensor, true_samples: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self,
+        anchor: torch.Tensor,
+        true_samples: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Input Shapes:
 
         anchor:        [B, S, C, H, W]       (S = samples_per_yield)
@@ -29,7 +33,9 @@ class Shell(Network):
         Output Shapes:
             feat_anchor:       [B * S, D]         (D = embedding dimension)
             feat_true_sample:  [B * S, N, D]
+            classify:  [B * S, num_classes]
         """
+
         batch_size, samples_per_yield, channels, height, width = anchor.shape
         num_pos_samples = true_samples.shape[2]
         total_batch = batch_size * samples_per_yield
@@ -47,26 +53,28 @@ class Shell(Network):
         # Restore positive features to tensor structure: [B * S, N, D]
         feat_true_sample = feat_true_flat.reshape(total_batch, num_pos_samples, -1)
 
-        return feat_anchor, feat_true_sample
+        if self.classify is not None:
+            return feat_anchor, feat_true_sample, self.classify(feat_anchor)
+        else:
+            return feat_anchor, feat_true_sample, None
 
     @torch.no_grad()
     def refer(self, anchor: Tensor4D, true_samples: Tensor6D):
         return self.forward(anchor, true_samples)
 
-    def save_checkpoint(self, path: str, metric: Metric):
+    def save_checkpoint(self, path: str, metric: RankMetric):
 
         os.makedirs(path, exist_ok=True)
-
-        components = {
-            "model": self.model,
-        }
+        if self.classify is not None:
+            components = {"model": self.model, "classify": self.classify}
+        else:
+            components = {"model": self.model}
 
         for name, sub_module in components.items():
             file_path = os.path.join(path, f"{name}.pth")
             state_dict = sub_module.state_dict()
             torch.save(state_dict, file_path)
 
-            # 核验文件是否真正成功写入且大小正常
             if not (os.path.exists(file_path) and os.path.getsize(file_path) > 0):
                 raise IOError(
                     f"The weight file of submodule [{name}] failed to save or the file is empty!"
@@ -77,9 +85,10 @@ class Shell(Network):
 
     def load_checkpoint(self, path: str):
 
-        components = {
-            "model": self.model,
-        }
+        if self.classify is not None:
+            components = {"model": self.model, "classify": self.classify}
+        else:
+            components = {"model": self.model}
 
         # 基础物理文件完整性核验
         for name in components.keys():
@@ -116,7 +125,6 @@ class Shell(Network):
                         f"          File save weight dimension: {list(loaded_state_dict[key].shape)}"
                     )
 
-            # 如果该组件存在任何不一致，立刻抛出详细的崩溃报告
             if missing_keys or unexpected_keys or shape_mismatches:
                 error_title = (
                     f"\nWeight Dimension Mismatch inside sub-component [{name}]!"

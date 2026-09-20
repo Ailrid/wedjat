@@ -23,7 +23,8 @@ dependencies = [
     "torch>=2.2",
     "tqdm>=4.64.1",
     "transformers==4.51.3",
-    "rknn3-toolkit"
+    "rknn3-toolkit",
+    "rasterio>=1.5.1",
 ]
 
 [[tool.uv.index]]
@@ -38,6 +39,6 @@ extraPaths = [
     "src/",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+# [build-system]
+# requires = ["hatchling"]
+# build-backend = "hatchling.build"

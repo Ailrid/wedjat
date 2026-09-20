@@ -11,13 +11,15 @@ from dataclasses import dataclass
 @dataclass()
 class ModelParameters:
     checkpoint_folder: Optional[str] = None
-    model_type: str = "cnn"
-    out_dims: int = 2048
+    model_type: str = "vit"
+    out_dims: int = 512
+    num_classes: Optional[int] = None
     dropout: float = 0.1
 
 
 @dataclass()
 class DatasetParameters:
+    dataset_type: str
     train_folder: str
     test_folder: str
     batch_size: int = 32

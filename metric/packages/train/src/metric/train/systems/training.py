@@ -37,7 +37,7 @@ from ..messages.initialization import (
     CreateDatasetMessage,
     CreateLoggerAndCheckpointMessage,
 )
-from ..util import confirm_light_params, plot_training_state
+from ..util import confirm_light_params
 
 
 class Color:
@@ -49,7 +49,7 @@ class Color:
     ORANGE = "\033[33m"
     GREY = "\033[90m"
     BOLD = "\033[1m"
-    END = "\033[0m"  # 用来结束颜色，否则后面的文本都会变色
+    END = "\033[0m"
 
 
 @system()
@@ -112,8 +112,7 @@ def save_checkpoint(
     current_metrics = training_state.current_metrics
     best_metrics = training_state.best_metrics
 
-    # 只保存最好的一轮
-    if current_metrics.max_accuracy > best_metrics.max_accuracy:
+    if current_metrics.rank1 > best_metrics.rank1:
         training_state.best_metrics = current_metrics
         model_config.model.save_checkpoint(
             checkpoint_folder, training_state.best_metrics
@@ -157,43 +156,46 @@ def one_epoch(
     scheduler = env_config.scheduler
 
     train_loss = training_state.train_loss
-    train_max_accuracy = training_state.train_max_accuracy
     MessageWriter.info(
         f"\n{Color.ORANGE}{Color.BOLD} ------------------------------- Train  -------------------------------- {Color.END}\n"
     )
+    if dataset_config.dataset_type == "tiff":
+        total = (
+            len(cast(TiffLoader, dataset_config.train_loader.dataset))
+            * dataset_config.num_workers
+            // dataset_config.batch_size
+        )
+    else:
+        total = len(dataset_config.train_loader.dataset) // dataset_config.batch_size  # type: ignore
 
     model.train()
     with tqdm(
         dataset_config.train_loader,
         desc=f"Epoch {message.epoch}",
-        total=len(cast(TiffLoader, dataset_config.train_loader.dataset))
-        * dataset_config.num_workers
-        // dataset_config.batch_size,
+        total=total,
     ) as pbar:
         l_statistic = []
-        for anchor, positive in pbar:
+        for anchor, positive, labels in pbar:
 
             anchor = anchor.to(device).to(torch.float32)
             positive = positive.to(device).to(torch.float32)
 
             optimizer.zero_grad()
-            feat_anchor, feat_true_sample = model(anchor, positive)
+            feat_anchor, feat_true_sample, feat_label = model(anchor, positive)
 
-            l = loss(feat_anchor, feat_true_sample)
+            l = loss(feat_anchor, feat_true_sample, feat_label, labels)
             l_statistic.append(l.cpu().item())
             l.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            evaluator.update(feat_anchor, feat_true_sample)
+            evaluator.update(feat_anchor, feat_true_sample, labels.reshape(-1))
             pbar.set_description(
                 f"Loss: {np.mean(l_statistic):.5f},  Lr: {scheduler.get_last_lr()[0]:.6f}"
             )
 
     scheduler.step()
-    current_metrics, report_str = evaluator.print_metrics()
+    _, report_str = evaluator.compute()
     MessageWriter.info(report_str)
     train_loss.append(np.mean(l_statistic).item())
-    train_max_accuracy.append(current_metrics.max_accuracy)
 
 
 @system()
@@ -211,30 +213,34 @@ def eval_net(
     model = model_config.model
     model.eval()
 
-    test_max_accuracy = training_state.test_max_accuracy
-
     MessageWriter.info(
         f"\n{Color.BLUE}{Color.BOLD} ------------------------------- Test -------------------------------- {Color.END}\n"
     )
+    if dataset_config.dataset_type == "tiff":
+        total = (
+            len(cast(TiffLoader, dataset_config.test_loader.dataset))
+            * dataset_config.num_workers
+            // dataset_config.batch_size
+        )
+    else:
+        total = len(dataset_config.test_loader.dataset) // dataset_config.batch_size  # type: ignore
+
     with torch.no_grad():
         with tqdm(
             dataset_config.test_loader,
             desc=f"Eval {message.epoch}",
-            total=len(cast(TiffLoader, dataset_config.test_loader.dataset))
-            // dataset_config.batch_size,
+            total=total,
         ) as pbar:
-            for anchor, positive in pbar:
+            for anchor, positive, labels in pbar:
 
                 anchor = anchor.to(device).to(torch.float32)
                 positive = positive.to(device).to(torch.float32)
+                feat_anchor, feat_true_sample, _ = model.refer(anchor, positive)
+                evaluator.update(feat_anchor, feat_true_sample, labels.reshape(-1))
 
-                feat_anchor, feat_true_sample = model(anchor, positive)
-
-                evaluator.update(feat_anchor, feat_true_sample)
-
-        current_metrics, report_str = evaluator.print_metrics()
+        current_metrics, report_str = evaluator.compute()
         training_state.current_metrics = current_metrics
-        test_max_accuracy.append(current_metrics.max_accuracy)
+        training_state.metrics_history.metric.append(current_metrics)
         MessageWriter.info(report_str)
 
 
@@ -242,7 +248,8 @@ def eval_net(
 def plot_state(
     training_state: TrainingState,
 ) -> None:
-    plot_training_state(training_state)
+    # plot_training_state(training_state)
+    pass
 
 
 @system(message_type=StartTrainingMessage)
@@ -272,7 +279,7 @@ def start_training(env_config: EnvConfig, train_state: TrainingState) -> None:
         OneEpochMessage.send(train_state.current_epoch)
         EvalMessage.send(train_state.current_epoch)
         SaveCheckPointMessage.send()
-        PlotStateMessage.send()
+        # PlotStateMessage.send()
 
 
 def register_training_systems(app: ViridApp):

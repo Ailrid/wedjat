@@ -161,14 +161,14 @@ if __name__ == "__main__":
     # Settings:
     # 1. Full UINT8/INT8 Quantization: do_quantization = True
     # 2. Pure FP16 Mode: do_quantization = False
-    do_quantization = True
+    do_quantization = False
 
     # Quantization data type options:
     # - "asymmetric_quantized-8" (standard asymmetric int8/uint8)
     # - "w8a8"
     quantized_dtype = "w8a8"
 
-    model_path = "assets/resnet50-v2-7.onnx"
+    model_path = "assets/vit.onnx"
     output_path = "assets/model.rknn"
     dataset_path = "./test_images/dataset.txt"
     image_folder_path = "./test_images"

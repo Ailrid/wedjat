@@ -7,12 +7,11 @@ Project: wedjat-metric
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from metric.core import get_cross_view_dataloader
 
 
-def denormalize(tensor: torch.Tensor) -> np.ndarray:
-    """Convert normalized Image Tensor [C, H, W] back to unnormalized RGB image [H, W, C]."""
+def denormalize(tensor):
+    # Convert normalized tensor back to unnormalized RGB image
     mean = np.array([0.485, 0.456, 0.406]).reshape(1, 1, 3)
     std = np.array([0.229, 0.224, 0.225]).reshape(1, 1, 3)
 
@@ -23,98 +22,96 @@ def denormalize(tensor: torch.Tensor) -> np.ndarray:
 
 
 def run_cross_view_dataloader_test(
-    dataset_dir: str,
-    batch_size: int = 4,
-    drone_samples_per_location: int = 2,
-    input_size: int = 256,
+    root_dir,
+    batch_size=4,
+    samples_per_yield=2,
+    true_sample_number=2,
+    input_size=256,
 ):
-    if not os.path.exists(dataset_dir):
-        print(f"Directory not found: {dataset_dir}")
+    if not os.path.exists(root_dir):
+        print(f"Directory not found: {root_dir}")
         return
 
-    print(f"Loading Cross-View dataset from directory: {dataset_dir}")
+    print(f"Loading CrossView dataset from directory: {root_dir}")
 
     dataloader = get_cross_view_dataloader(
-        root_dir=dataset_dir,
+        root_dir=root_dir,
         input_size=(input_size, input_size),
         batch_size=batch_size,
-        drone_samples_per_location=drone_samples_per_location,
+        samples_per_yield=samples_per_yield,
+        true_sample_number=true_sample_number,
         is_train=True,
         num_workers=0,
     )
 
-    for batch_idx, (sat_batch, drone_batch, ids) in enumerate(dataloader):
+    for batch_idx, (anchors, positives, labels) in enumerate(dataloader):
         print("\n" + "=" * 50)
         print(f"Batch {batch_idx + 1} successfully loaded. Tensor validation:")
-        print(f"Satellite batch shape [B, C, H, W]        : {sat_batch.shape}")
-        if drone_samples_per_location > 1:
-            print(f"Drone batch shape     [B, K, C, H, W]     : {drone_batch.shape}")
-        else:
-            print(f"Drone batch shape     [B, C, H, W]        : {drone_batch.shape}")
-        print(f"Location IDs                              : {ids}")
+        print(f"Anchors (Satellite) shape [B, S, C, H, W]    : {anchors.shape}")
+        print(f"Positives (Drone)   shape [B, S, N, C, H, W] : {positives.shape}")
+        print(f"Labels (Satellite)   shape [B, S] : {labels.shape}")
 
         print(
-            f"Satellite value range                     : [{sat_batch.min():.2f}, {sat_batch.max():.2f}]"
+            f"Anchors   value range                         : [{anchors.min():.2f}, {anchors.max():.2f}]"
         )
         print(
-            f"Drone value range                         : [{drone_batch.min():.2f}, {drone_batch.max():.2f}]"
+            f"Positives value range                         : [{positives.min():.2f}, {positives.max():.2f}]"
         )
         print("=" * 50)
 
-        # Strict shape verification assertions
-        expected_sat_shape = (batch_size, 3, input_size, input_size)
-        assert (
-            sat_batch.shape == expected_sat_shape
-        ), f"Expected satellite shape {expected_sat_shape}, got {sat_batch.shape}"
-
-        if drone_samples_per_location > 1:
-            expected_drone_shape = (
-                batch_size,
-                drone_samples_per_location,
-                3,
-                input_size,
-                input_size,
-            )
-            assert (
-                drone_batch.shape == expected_drone_shape
-            ), f"Expected drone shape {expected_drone_shape}, got {drone_batch.shape}"
-        else:
-            expected_drone_shape = (batch_size, 3, input_size, input_size)
-            assert (
-                drone_batch.shape == expected_drone_shape
-            ), f"Expected drone shape {expected_drone_shape}, got {drone_batch.shape}"
-
-        # Plotting & Visualization setup
-        total_cols = 1 + drone_samples_per_location
-        fig, axes = plt.subplots(
-            batch_size, total_cols, figsize=(3.5 * total_cols, 3.5 * batch_size)
+        # Strict shape verification for 5D anchors and 6D positives
+        expected_anchor_shape = (
+            batch_size,
+            samples_per_yield,
+            3,
+            input_size,
+            input_size,
+        )
+        expected_pos_shape = (
+            batch_size,
+            samples_per_yield,
+            true_sample_number,
+            3,
+            input_size,
+            input_size,
         )
 
-        # Standardize 2D axes array structure if batch_size == 1
-        if batch_size == 1:
+        assert (
+            anchors.shape == expected_anchor_shape
+        ), f"Expected anchor shape {expected_anchor_shape}, got {anchors.shape}"
+        assert (
+            positives.shape == expected_pos_shape
+        ), f"Expected positive shape {expected_pos_shape}, got {positives.shape}"
+
+        # Flatten total samples B * S into total rows for grid display
+        total_samples = batch_size * samples_per_yield
+        anchors_flat = anchors.reshape(total_samples, 3, input_size, input_size)
+        positives_flat = positives.reshape(
+            total_samples, true_sample_number, 3, input_size, input_size
+        )
+
+        total_cols = 1 + true_sample_number
+        fig, axes = plt.subplots(
+            total_samples, total_cols, figsize=(3.5 * total_cols, 3.5 * total_samples)
+        )
+
+        # Standardize 2D axes array structure
+        if total_samples == 1:
             axes = np.expand_dims(axes, axis=0)
 
-        for row_idx in range(batch_size):
-            loc_id = ids[row_idx]
-
-            # Display Satellite Image (Column 0)
-            sat_img = denormalize(sat_batch[row_idx])
-            axes[row_idx, 0].imshow(sat_img)
-            axes[row_idx, 0].set_title(f"ID: {loc_id} | Satellite")
+        for row_idx in range(total_samples):
+            # Display satellite anchor image
+            anchor_img = denormalize(anchors_flat[row_idx])
+            axes[row_idx, 0].imshow(anchor_img)
+            axes[row_idx, 0].set_title(f"Sample {row_idx + 1}: Satellite")
             axes[row_idx, 0].axis("off")
 
-            # Display Drone Image(s) (Columns 1 .. N)
-            if drone_samples_per_location > 1:
-                for k_idx in range(drone_samples_per_location):
-                    drone_img = denormalize(drone_batch[row_idx, k_idx])
-                    axes[row_idx, 1 + k_idx].imshow(drone_img)
-                    axes[row_idx, 1 + k_idx].set_title(f"Drone {k_idx + 1}")
-                    axes[row_idx, 1 + k_idx].axis("off")
-            else:
-                drone_img = denormalize(drone_batch[row_idx])
-                axes[row_idx, 1].imshow(drone_img)
-                axes[row_idx, 1].set_title("Drone 1")
-                axes[row_idx, 1].axis("off")
+            # Display drone positive samples
+            for p_idx in range(true_sample_number):
+                pos_img = denormalize(positives_flat[row_idx, p_idx])
+                axes[row_idx, 1 + p_idx].imshow(pos_img)
+                axes[row_idx, 1 + p_idx].set_title(f"Drone Pos {p_idx + 1}")
+                axes[row_idx, 1 + p_idx].axis("off")
 
         save_path = "cross_view_dataloader_vis_result.png"
         plt.tight_layout()
@@ -126,8 +123,9 @@ def run_cross_view_dataloader_test(
 
 if __name__ == "__main__":
     run_cross_view_dataloader_test(
-        dataset_dir="dataset/cross_view/train",
+        root_dir="dataset/cross_view/train",
         batch_size=4,
-        drone_samples_per_location=2,
+        samples_per_yield=2,
+        true_sample_number=2,
         input_size=224,
     )

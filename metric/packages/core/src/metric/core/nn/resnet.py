@@ -114,7 +114,7 @@ class BottleneckV2(nn.Module):
         in_planes: int,
         planes: int,
         stride: int = 1,
-        downsample: nn.Module = None,
+        downsample: nn.Module = None, # type: ignore
     ):
         super().__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
@@ -182,7 +182,7 @@ class ResNet50V2(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.in_planes, planes, stride, downsample))
+        layers.append(block(self.in_planes, planes, stride, downsample)) # type: ignore
         self.in_planes = out_planes
 
         for _ in range(1, blocks):

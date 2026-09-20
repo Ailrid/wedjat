@@ -4,9 +4,10 @@ Licensed under the Apache License, Version 2.0.
 Project: wedjat-metric
 """
 
+from typing import Any
+
 import torch
 from metric.core import (
-    TiffLoader,
     Network,
     MetricEvaluator,
     MSLoss,
@@ -35,10 +36,11 @@ class ModelConfig:
 @component()
 @dataclass()
 class DatasetConfig:
+    dataset_type: str
     batch_size: int
     input_size: int
-    train_loader: DataLoader[TiffLoader]
-    test_loader: DataLoader[TiffLoader]
+    train_loader: DataLoader[Any]
+    test_loader: DataLoader[Any]
     num_workers: int
 
 

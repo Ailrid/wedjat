@@ -6,7 +6,7 @@ Project: wedjat-metric
 
 from virid.core import component, ViridApp
 from dataclasses import dataclass, field
-from metric.core import Metric
+from metric.core import Metric, RankMetric
 
 
 @component()
@@ -17,15 +17,13 @@ class TrainingState:
     # 当前的轮数
     current_epoch: int = 0
     # 当前epoch的评估指标
-    current_metrics: Metric = field(default_factory=Metric)
+    current_metrics: RankMetric = field(default_factory=RankMetric)
     # 最好的一次评估指标
-    best_metrics: Metric = field(default_factory=Metric)
-    # 最好的一次的混淆矩阵
-    best_hist_matrix: list[list[int]] = field(default_factory=lambda: list())
+    best_metrics: RankMetric = field(default_factory=RankMetric)
+    # 历史评估指标
+    metrics_history: Metric = field(default_factory=Metric)
     #  train_loss
     train_loss: list[float] = field(default_factory=lambda: list())
-    train_max_accuracy: list[float] = field(default_factory=lambda: list())
-    test_max_accuracy: list[float] = field(default_factory=lambda: list())
     # 日志路径
     log_folder: str = ""
     # 模型保存路径

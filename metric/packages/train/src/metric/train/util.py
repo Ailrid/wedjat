@@ -203,278 +203,365 @@ def confirm_light_params(
     return "".join(matches)
 
 
-def plot_training_state(state: TrainingState):
-    """
-    Generates a 3x2 mixed training status dashboard for self-supervised
-    metric learning and binary verification metrics.
-    """
-    try:
-        plt.style.use("seaborn-v0_8-whitegrid")
-    except:
-        plt.style.use("default")
+# def plot_training_state(state: TrainingState):
+#     """Generates a 3x2 visualization dashboard for In-Batch metric learning
 
-    # Create a 3x2 grid layout matching your original aspect standard
-    fig = plt.figure(figsize=(16, 18), dpi=100)
-    gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1])
+#     using exact TrainingState dataclass structure.
+#     """
+#     try:
+#         plt.style.use("seaborn-v0_8-whitegrid")
+#     except Exception:
+#         plt.style.use("default")
 
-    # Top global text block summarizing historical progress
-    title_str = (
-        f"Metric Learning Training Dashboard [Epoch {state.current_epoch}]\n"
-        f"Current: Max Acc={state.current_metrics.max_accuracy * 100:.2f} % | "
-        f"Best Threshold={state.current_metrics.best_threshold:.4f}\n"
-        f"Best Hist: Max Acc={state.best_metrics.max_accuracy * 100:.2f} % | "
-        f"Best Threshold={state.best_metrics.best_threshold:.4f}"
-    )
-    fig.suptitle(title_str, fontsize=16, fontweight="bold", y=0.98, va="top")
+#     fig = plt.figure(figsize=(16, 18), dpi=100)
+#     gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 1])
 
-    # -------------------------------------------------------------------------
-    # ROW 1: HISTORICAL PROGRESS TRACKING
-    # -------------------------------------------------------------------------
+#     cur_m = state.current_metrics
+#     best_m = state.best_metrics
+#     history_list = state.metrics_history.metric
 
-    # 1. [Top-Left]: Training Loss Curve
-    ax_loss = fig.add_subplot(gs[0, 0])
-    losses = state.train_loss
-    if isinstance(losses, list) and len(losses) > 0:
-        ax_loss.plot(
-            range(1, len(losses) + 1),
-            losses,
-            color="#E64B35",
-            alpha=0.8,
-            linewidth=1.5,
-            label="Batch Loss",
-        )
-        if len(losses) > 10:
-            window = max(2, len(losses) // 10)
-            smooth_loss = np.convolve(losses, np.ones(window) / window, mode="valid")
-            ax_loss.plot(
-                range(window, len(losses) + 1),
-                smooth_loss,
-                color="#7E2F23",
-                linewidth=2.5,
-                label=f"Moving Avg (w={window})",
-            )
-        ax_loss.set_title("Training Loss History", fontsize=12, fontweight="bold")
-        ax_loss.set_xlabel("Epochs")
-        ax_loss.set_ylabel("Loss")
-        ax_loss.legend()
-    else:
-        ax_loss.text(
-            0.5, 0.5, "No Loss Data Available", ha="center", va="center", fontsize=12
-        )
+#     # Global Summary Title
+#     title_str = (
+#         f"In-Batch Metric Learning Dashboard [Epoch {state.current_epoch}]\n"
+#         f"Current: MRR={cur_m.in_batch_mrr:.4f} | Recall@1={cur_m.in_batch_recall_1 * 100:.2f}%  ||  "
+#         f"Best Hist: MRR={best_m.in_batch_mrr:.4f} | Recall@1={best_m.in_batch_recall_1 * 100:.2f}%"
+#     )
+#     fig.suptitle(title_str, fontsize=16, fontweight="bold", y=0.98, va="top")
 
-    # 2. [Top-Right]: Peak Binary Accuracy Curve Over Epochs
-    ax_acc_hist = fig.add_subplot(gs[0, 1])
-    train_acc = state.train_max_accuracy
-    test_acc = state.test_max_accuracy
-    if isinstance(train_acc, list) and len(train_acc) > 0:
-        epochs_range = range(1, len(train_acc) + 1)
-        ax_acc_hist.plot(
-            epochs_range,
-            train_acc,
-            color="#00A087",
-            marker="o",
-            markersize=4,
-            linewidth=2,
-            label="Train Max Acc",
-        )
-        if isinstance(test_acc, list) and len(test_acc) > 0:
-            ax_acc_hist.plot(
-                range(1, len(test_acc) + 1),
-                test_acc,
-                color="#3C5488",
-                marker="s",
-                markersize=4,
-                linewidth=2,
-                label="Test Max Acc",
-            )
-        ax_acc_hist.set_title(
-            "Max Verification Accuracy History", fontsize=12, fontweight="bold"
-        )
-        ax_acc_hist.set_xlabel("Epochs")
-        ax_acc_hist.set_ylabel("Accuracy Score")
-        ax_acc_hist.set_ylim(-0.02, 1.02)
-        ax_acc_hist.legend(loc="lower right")
-    else:
-        ax_acc_hist.text(
-            0.5, 0.5, "No Accuracy History Data", ha="center", va="center", fontsize=12
-        )
+#     # ROW 1: Loss and Ranking Metrics History
 
-    # -------------------------------------------------------------------------
-    # ROW 2: THRESHOLD SWEEP DYNAMICS (ACCURACY, TPR, FPR VS THRESHOLD)
-    # -------------------------------------------------------------------------
+#     # Subplot: Training Loss Curve
+#     ax_loss = fig.add_subplot(gs[0, 0])
+#     losses = state.train_loss
+#     if len(losses) > 0:
+#         epochs_loss = range(1, len(losses) + 1)
+#         ax_loss.plot(
+#             epochs_loss,
+#             losses,
+#             color="#E64B35",
+#             alpha=0.6,
+#             linewidth=1.5,
+#             label="Batch Loss",
+#         )
+#         if len(losses) >= 5:
+#             window = max(2, len(losses) // 10)
+#             smooth_loss = np.convolve(losses, np.ones(window) / window, mode="valid")
+#             ax_loss.plot(
+#                 range(window, len(losses) + 1),
+#                 smooth_loss,
+#                 color="#7E2F23",
+#                 linewidth=2.5,
+#                 label=f"Moving Avg (w={window})",
+#             )
+#         ax_loss.set_title("Training Loss History", fontsize=12, fontweight="bold")
+#         ax_loss.set_xlabel("Epochs")
+#         ax_loss.set_ylabel("Loss")
+#         ax_loss.legend(loc="upper right")
+#     else:
+#         ax_loss.text(
+#             0.5,
+#             0.5,
+#             "No Loss Data Available",
+#             ha="center",
+#             va="center",
+#             fontsize=12,
+#         )
 
-    # 3. [Middle-Left]: Current Epoch Threshold Sweep
-    ax_cur_sweep = fig.add_subplot(gs[1, 0])
-    cur_m = state.current_metrics
-    if isinstance(cur_m.thresholds, list) and len(cur_m.thresholds) > 0:
-        ax_cur_sweep.plot(
-            cur_m.thresholds,
-            cur_m.accuracy_curve,
-            color="#4DBBD5",
-            linewidth=2.5,
-            label="Accuracy",
-        )
-        ax_cur_sweep.plot(
-            cur_m.thresholds,
-            cur_m.tpr_curve,
-            color="#00A087",
-            linestyle="--",
-            label="TPR (Recall)",
-        )
-        ax_cur_sweep.plot(
-            cur_m.thresholds,
-            cur_m.fpr_curve,
-            color="#E64B35",
-            linestyle=":",
-            label="FPR",
-        )
-        ax_cur_sweep.axvline(
-            x=cur_m.best_threshold,
-            color="#7E2F23",
-            linestyle="-.",
-            label=f"Best Threshold ({cur_m.best_threshold:.3f})",
-        )
-        ax_cur_sweep.set_title(
-            f"Epoch {state.current_epoch} Threshold Sweep Curve",
-            fontsize=12,
-            fontweight="bold",
-        )
-        ax_cur_sweep.set_xlabel("Cosine Similarity Threshold")
-        ax_cur_sweep.set_ylabel("Metrics Score")
-        ax_cur_sweep.set_ylim(-0.02, 1.02)
-        ax_cur_sweep.legend(loc="lower left")
-    else:
-        ax_cur_sweep.text(
-            0.5, 0.5, "No Current Sweep Data", ha="center", va="center", fontsize=12
-        )
+#     # Subplot: In-Batch Ranking Metrics History
+#     ax_rank = fig.add_subplot(gs[0, 1])
+#     if len(history_list) > 0:
+#         epochs_hist = range(1, len(history_list) + 1)
+#         r1_list = [m.in_batch_recall_1 * 100 for m in history_list]
+#         r5_list = [m.in_batch_recall_5 * 100 for m in history_list]
+#         mrr_list = [m.in_batch_mrr for m in history_list]
 
-    # 4. [Middle-Right]: Best Historical Threshold Sweep
-    ax_best_sweep = fig.add_subplot(gs[1, 1])
-    best_m = state.best_metrics
-    if isinstance(best_m.thresholds, list) and len(best_m.thresholds) > 0:
-        ax_best_sweep.plot(
-            best_m.thresholds,
-            best_m.accuracy_curve,
-            color="#91D1C2",
-            linewidth=2.5,
-            label="Accuracy",
-        )
-        ax_best_sweep.plot(
-            best_m.thresholds,
-            best_m.tpr_curve,
-            color="#00A087",
-            linestyle="--",
-            label="TPR (Recall)",
-        )
-        ax_best_sweep.plot(
-            best_m.thresholds,
-            best_m.fpr_curve,
-            color="#E64B35",
-            linestyle=":",
-            label="FPR",
-        )
-        ax_best_sweep.axvline(
-            x=best_m.best_threshold,
-            color="#7E2F23",
-            linestyle="-.",
-            label=f"Best Threshold ({best_m.best_threshold:.3f})",
-        )
-        ax_best_sweep.set_title(
-            "Best History Threshold Sweep Curve", fontsize=12, fontweight="bold"
-        )
-        ax_best_sweep.set_xlabel("Cosine Similarity Threshold")
-        ax_best_sweep.set_ylabel("Metrics Score")
-        ax_best_sweep.set_ylim(-0.02, 1.02)
-        ax_best_sweep.legend(loc="lower left")
-    else:
-        ax_best_sweep.text(
-            0.5, 0.5, "No Best Sweep Data", ha="center", va="center", fontsize=12
-        )
+#         ax_rank.plot(
+#             epochs_hist,
+#             r1_list,
+#             color="#E64B35",
+#             marker="o",
+#             markersize=4,
+#             linewidth=2,
+#             label="Recall@1 (%)",
+#         )
+#         ax_rank.plot(
+#             epochs_hist,
+#             r5_list,
+#             color="#4DBBD5",
+#             marker="s",
+#             markersize=4,
+#             linewidth=2,
+#             label="Recall@5 (%)",
+#         )
 
-    # -------------------------------------------------------------------------
-    # ROW 3: ROC CURVES SPACE (FPR VS TPR VISUALIZATION)
-    # -------------------------------------------------------------------------
+#         ax_rank.set_title(
+#             "In-Batch Ranking Metrics History", fontsize=12, fontweight="bold"
+#         )
+#         ax_rank.set_xlabel("Epochs")
+#         ax_rank.set_ylabel("Recall Score (%)")
+#         ax_rank.set_ylim(-2, 102)
 
-    # 5. [Bottom-Left]: Current Epoch ROC Curve
-    ax_cur_roc = fig.add_subplot(gs[2, 0])
-    if isinstance(cur_m.fpr_curve, list) and len(cur_m.fpr_curve) > 0:
-        ax_cur_roc.plot(
-            cur_m.fpr_curve,
-            cur_m.tpr_curve,
-            color="#3C5488",
-            linewidth=2.5,
-            label="ROC Curve",
-        )
-        ax_cur_roc.plot(
-            [0, 1], [0, 1], color="gray", linestyle="--", alpha=0.5, label="Baseline"
-        )
-        ax_cur_roc.scatter(
-            cur_m.fpr_at_best,
-            cur_m.tpr_at_best,
-            color="#E64B35",
-            s=60,
-            zorder=5,
-            label=f"Optimal Operational Point",
-        )
-        ax_cur_roc.set_title(
-            f"Epoch {state.current_epoch} ROC Curve", fontsize=12, fontweight="bold"
-        )
-        ax_cur_roc.set_xlabel("False Positive Rate (FPR)")
-        ax_cur_roc.set_ylabel("True Positive Rate (TPR)")
-        ax_cur_roc.set_xlim(-0.02, 1.02)
-        ax_cur_roc.set_ylim(-0.02, 1.02)
-        ax_cur_roc.legend(loc="lower right")
-    else:
-        ax_cur_roc.text(
-            0.5,
-            0.5,
-            "No Current ROC Data Available",
-            ha="center",
-            va="center",
-            fontsize=12,
-        )
+#         # Secondary Y-axis for MRR score
+#         ax_mrr = ax_rank.twinx()
+#         ax_mrr.plot(
+#             epochs_hist,
+#             mrr_list,
+#             color="#00A087",
+#             linestyle="--",
+#             linewidth=2.5,
+#             label="MRR",
+#         )
+#         ax_mrr.set_ylabel("MRR Score", color="#00A087")
+#         ax_mrr.set_ylim(-0.02, 1.02)
+#         ax_mrr.grid(False)
 
-    # 6. [Bottom-Right]: Best Historical ROC Curve
-    ax_best_roc = fig.add_subplot(gs[2, 1])
-    if isinstance(best_m.fpr_curve, list) and len(best_m.fpr_curve) > 0:
-        ax_best_roc.plot(
-            best_m.fpr_curve,
-            best_m.tpr_curve,
-            color="#A1A9D0",
-            linewidth=2.5,
-            label="ROC Curve",
-        )
-        ax_best_roc.plot(
-            [0, 1], [0, 1], color="gray", linestyle="--", alpha=0.5, label="Baseline"
-        )
-        ax_best_roc.scatter(
-            best_m.fpr_at_best,
-            best_m.tpr_at_best,
-            color="#E64B35",
-            s=60,
-            zorder=5,
-            label=f"Optimal Operational Point",
-        )
-        ax_best_roc.set_title("Best History ROC Curve", fontsize=12, fontweight="bold")
-        ax_best_roc.set_xlabel("False Positive Rate (FPR)")
-        ax_best_roc.set_ylabel("True Positive Rate (TPR)")
-        ax_best_roc.set_xlim(-0.02, 1.02)
-        ax_best_roc.set_ylim(-0.02, 1.02)
-        ax_best_roc.legend(loc="lower right")
-    else:
-        ax_best_roc.text(
-            0.5,
-            0.5,
-            "No Best ROC Data Available",
-            ha="center",
-            va="center",
-            fontsize=12,
-        )
+#         lines_1, labels_1 = ax_rank.get_legend_handles_labels()
+#         lines_2, labels_2 = ax_mrr.get_legend_handles_labels()
+#         ax_rank.legend(lines_1 + lines_2, labels_1 + labels_2, loc="lower right")
+#     else:
+#         ax_rank.text(
+#             0.5,
+#             0.5,
+#             "No Metric History Available",
+#             ha="center",
+#             va="center",
+#             fontsize=12,
+#         )
 
-    # Standard alignment adjustments
-    plt.tight_layout()
-    fig.subplots_adjust(top=0.92)
+#     # ROW 2: Separability Index and Similarity Distribution Dynamics
 
-    save_path = os.path.join(state.log_folder, "training_state.png")
-    plt.savefig(save_path, bbox_inches="tight")
-    plt.close()
+#     # Subplot: Feature Separability Index (d') and Margin History
+#     ax_sep = fig.add_subplot(gs[1, 0])
+#     if len(history_list) > 0:
+#         d_prime_list = [m.d_prime for m in history_list]
+#         margin_list = [m.margin for m in history_list]
+
+#         ax_sep.plot(
+#             epochs_hist, # type: ignore
+#             d_prime_list,
+#             color="#3C5488",
+#             marker="^",
+#             markersize=4,
+#             linewidth=2,
+#             label="Separability Index (d')",
+#         )
+#         ax_sep.set_title(
+#             "Feature Separability & Margin History",
+#             fontsize=12,
+#             fontweight="bold",
+#         )
+#         ax_sep.set_xlabel("Epochs")
+#         ax_sep.set_ylabel("d' Index", color="#3C5488")
+
+#         ax_margin = ax_sep.twinx()
+#         ax_margin.plot(
+#             epochs_hist,  # type: ignore
+#             margin_list,
+#             color="#F39B7F",
+#             linestyle="-.",
+#             linewidth=2,
+#             label="Similarity Margin",
+#         )
+#         ax_margin.set_ylabel("Margin (Mean Pos - Mean Neg)", color="#F39B7F")
+#         ax_margin.grid(False)
+
+#         lines_1, labels_1 = ax_sep.get_legend_handles_labels()
+#         lines_2, labels_2 = ax_margin.get_legend_handles_labels()
+#         ax_sep.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper left")
+#     else:
+#         ax_sep.text(
+#             0.5,
+#             0.5,
+#             "No Separability Data Available",
+#             ha="center",
+#             va="center",
+#             fontsize=12,
+#         )
+
+#     # Subplot: Positive and Negative Cosine Similarity Dynamics
+#     ax_sim = fig.add_subplot(gs[1, 1])
+#     if len(history_list) > 0:
+#         pos_mean = np.array([m.mean_pos_sim for m in history_list])
+#         pos_std = np.array([m.std_pos_sim for m in history_list])
+#         neg_mean = np.array([m.mean_neg_sim for m in history_list])
+#         neg_std = np.array([m.std_neg_sim for m in history_list])
+
+#         ax_sim.plot(
+#             epochs_hist,  # type: ignore
+#             pos_mean,
+#             color="#00A087",
+#             linewidth=2,
+#             label="Positive Sim Mean",
+#         )
+#         ax_sim.fill_between(
+#             epochs_hist,  # type: ignore
+#             pos_mean - pos_std,
+#             pos_mean + pos_std,
+#             color="#00A087",
+#             alpha=0.15,
+#         )
+
+#         ax_sim.plot(
+#             epochs_hist,  # type: ignore
+#             neg_mean,
+#             color="#E64B35",
+#             linewidth=2,
+#             label="Negative Sim Mean",
+#         )
+#         ax_sim.fill_between(
+#             epochs_hist,  # type: ignore
+#             neg_mean - neg_std,
+#             neg_mean + neg_std,
+#             color="#E64B35",
+#             alpha=0.15,
+#         )
+
+#         ax_sim.set_title(
+#             "Cosine Similarity Dynamics (Mean ± Std)",
+#             fontsize=12,
+#             fontweight="bold",
+#         )
+#         ax_sim.set_xlabel("Epochs")
+#         ax_sim.set_ylabel("Cosine Similarity")
+#         ax_sim.set_ylim(-1.05, 1.05)
+#         ax_sim.legend(loc="center right")
+#     else:
+#         ax_sim.text(
+#             0.5,
+#             0.5,
+#             "No Similarity Distribution Data",
+#             ha="center",
+#             va="center",
+#             fontsize=12,
+#         )
+
+#     # ROW 3: Current vs Best Model Comparison
+
+#     # Subplot: Bar Chart Comparing Current vs Best Metrics
+#     ax_bar = fig.add_subplot(gs[2, 0])
+#     metrics_names = ["Recall@1 (%)", "Recall@5 (%)", "MRR (*100)", "d' Index"]
+
+#     cur_values = [
+#         cur_m.in_batch_recall_1 * 100,
+#         cur_m.in_batch_recall_5 * 100,
+#         cur_m.in_batch_mrr * 100,
+#         cur_m.d_prime,
+#     ]
+#     best_values = [
+#         best_m.in_batch_recall_1 * 100,
+#         best_m.in_batch_recall_5 * 100,
+#         best_m.in_batch_mrr * 100,
+#         best_m.d_prime,
+#     ]
+
+#     x = np.arange(len(metrics_names))
+#     width = 0.35
+
+#     ax_bar.bar(
+#         x - width / 2,
+#         cur_values,
+#         width,
+#         label="Current Epoch",
+#         color="#4DBBD5",
+#         alpha=0.85,
+#     )
+#     ax_bar.bar(
+#         x + width / 2,
+#         best_values,
+#         width,
+#         label="Best Epoch",
+#         color="#00A087",
+#         alpha=0.85,
+#     )
+
+#     ax_bar.set_title(
+#         "Current vs Best Metric Performance Comparison",
+#         fontsize=12,
+#         fontweight="bold",
+#     )
+#     ax_bar.set_xticks(x)
+#     ax_bar.set_xticklabels(metrics_names)
+#     ax_bar.legend(loc="upper left")
+
+#     for i in range(len(metrics_names)):
+#         ax_bar.text(
+#             x[i] - width / 2,
+#             cur_values[i] + 1,
+#             f"{cur_values[i]:.1f}",
+#             ha="center",
+#             va="bottom",
+#             fontsize=9,
+#         )
+#         ax_bar.text(
+#             x[i] + width / 2,
+#             best_values[i] + 1,
+#             f"{best_values[i]:.1f}",
+#             ha="center",
+#             va="bottom",
+#             fontsize=9,
+#         )
+
+#     # Subplot: Statistical Error Bar Comparison
+#     ax_stat = fig.add_subplot(gs[2, 1])
+
+#     categories = [
+#         "Current Pos Sim",
+#         "Current Neg Sim",
+#         "Best Pos Sim",
+#         "Best Neg Sim",
+#     ]
+#     means = [
+#         cur_m.mean_pos_sim,
+#         cur_m.mean_neg_sim,
+#         best_m.mean_pos_sim,
+#         best_m.mean_neg_sim,
+#     ]
+#     stds = [
+#         cur_m.std_pos_sim,
+#         cur_m.std_neg_sim,
+#         best_m.std_pos_sim,
+#         best_m.std_neg_sim,
+#     ]
+
+#     colors = ["#00A087", "#E64B35", "#3C5488", "#F39B7F"]
+#     x_pos = np.arange(len(categories))
+
+#     ax_stat.errorbar(
+#         x_pos,
+#         means,
+#         yerr=stds,
+#         fmt="o",
+#         ecolor="black",
+#         color="darkblue",
+#         elinewidth=2,
+#         capsize=6,
+#         markersize=8,
+#     )
+#     for i in range(len(categories)):
+#         ax_stat.scatter(x_pos[i], means[i], color=colors[i], s=100, zorder=5)
+#         ax_stat.text(
+#             x_pos[i],
+#             means[i] + stds[i] + 0.05,
+#             f"{means[i]:.2f}±{stds[i]:.2f}",
+#             ha="center",
+#             va="bottom",
+#             fontsize=9,
+#         )
+
+#     ax_stat.set_title(
+#         "Similarity Distribution Parameters (Mean ± Std)",
+#         fontsize=12,
+#         fontweight="bold",
+#     )
+#     ax_stat.set_xticks(x_pos)
+#     ax_stat.set_xticklabels(categories, rotation=15)
+#     ax_stat.set_ylabel("Cosine Similarity Value")
+#     ax_stat.set_ylim(-1.05, 1.2)
+
+#     plt.tight_layout()
+#     fig.subplots_adjust(top=0.92)
+
+#     os.makedirs(state.log_folder, exist_ok=True)
+#     save_path = os.path.join(state.log_folder, "training_state.png")
+#     plt.savefig(save_path, bbox_inches="tight")
+#     plt.close()

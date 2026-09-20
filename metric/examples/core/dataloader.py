@@ -11,10 +11,10 @@ from metric.core.dataloader import TiffLoader, get_cross_view_dataloader
 
 def benchmark_dataloader():
     # Define the target TIFF path
-    tiff_folder = "experiment/train"
+    tiff_folder = "dataset/tiff/train"
 
     # Dataset configuration parameters matching your implementation
-    input_size = 256
+    input_size = 224
     iter_times = 50  # Number of areas to sample per TIFF file
     true_sample_number = 3  # Positive samples per area
     samples_per_yield = 3  # Negative samples per area
@@ -84,22 +84,28 @@ def benchmark_dataloader():
     print("===================================================")
 
 
-def benchmark_cross_view_dataloader():
-    # Dataset configuration matching your environment
-    dataset_dir = "dataset/cross_view/train"  # Path containing 'drone' and 'satellite' subdirectories
-    input_size = (224, 224)
-    batch_size = 4
-    drone_samples_per_location = 2  # Number of drone images per location
-    num_workers = 4
-    is_train = True
+if __name__ == "__main__":
+    benchmark_dataloader()
 
-    print("Initializing CrossView DataLoader...")
+
+def benchmark_cross_view_dataloader():
+    """Benchmark script for CrossViewDataset dataloader performance and tensor shapes."""
+    root_dir = "dataset/cross_view/train"
+
+    input_size = (224, 224)
+    true_sample_number = 3
+    samples_per_yield = 3
+    batch_size = 4
+    num_workers = 4
+
+    print("Initializing CrossViewDataset dataloader...")
     dataloader = get_cross_view_dataloader(
-        root_dir=dataset_dir,
+        root_dir=root_dir,
         input_size=input_size,
         batch_size=batch_size,
-        drone_samples_per_location=drone_samples_per_location,
-        is_train=is_train,
+        samples_per_yield=samples_per_yield,
+        true_sample_number=true_sample_number,
+        is_train=True,
         num_workers=num_workers,
     )
 
@@ -108,59 +114,47 @@ def benchmark_cross_view_dataloader():
     batch_count = 0
     total_images_processed = 0
 
-    # Calculate total images in a single sample pair (1 satellite + N drone images)
-    images_per_sample = 1 + drone_samples_per_location
+    # Calculate individual image crops per yield: (1 satellite + N drone positives) * samples_per_yield
+    images_per_yield = (1 + true_sample_number) * samples_per_yield
 
     iterator = iter(dataloader)
     try:
-        # Warm-up step: PyTorch worker processes start-up time
-        sat_batch, drone_batch, ids = next(iterator)
+        anchors, positives = next(iterator)
         batch_count += 1
+        print("Warm-up completed.")
+        print(f"anchors shape  : {anchors.shape}")
+        print(f"positives shape: {positives.shape}")
 
-        print("--- Shape Verification ---")
-        print("Satellite batch shape :", sat_batch.shape)  # [B, C, H, W]
-        print(
-            "Drone batch shape     :", drone_batch.shape
-        )  # [B, K, C, H, W] or [B, C, H, W]
-        print("Location IDs sample   :", ids[: min(4, len(ids))])
-
-        current_batch_size = sat_batch.size(0)
-        total_images_processed += current_batch_size * images_per_sample
-        print("Warm-up completed. Iterating through dataset...\n")
-
+        total_images_processed += anchors.size(0) * images_per_yield
     except StopIteration:
         print(
-            f"No valid dataset found at '{dataset_dir}'. Please verify directory structure."
+            "No data found. Please verify that the cross-view dataset exists in the directory."
         )
         return
 
-    # Benchmark dataset iteration speed
-    for sat_batch, drone_batch, ids in iterator:
+    for anchors, positives, _ in iterator:
         batch_count += 1
-        current_batch_size = sat_batch.size(0)
-        total_images_processed += current_batch_size * images_per_sample
+        current_batch_size = anchors.size(0)
+        total_images_processed += current_batch_size * images_per_yield
 
         if batch_count % 10 == 0:
             elapsed = time.time() - start_time
-            print(
-                f"Processed {batch_count} batches ({total_images_processed} images) in {elapsed:.2f}s..."
-            )
+            print(f"Processed {batch_count} batches in {elapsed:.2f} seconds...")
 
     end_time = time.time()
     total_time = end_time - start_time
 
-    batches_per_second = batch_count / total_time
-    images_per_second = total_images_processed / total_time
+    batches_per_second = batch_count / total_time if total_time > 0 else 0
+    images_per_second = total_images_processed / total_time if total_time > 0 else 0
 
     print("\n================ BENCHMARK RESULTS ================")
     print(f"Total Time Elapsed  : {total_time:.2f} seconds")
     print(f"Total Batches Read  : {batch_count}")
-    print(f"Total Images Loaded : {total_images_processed} (Satellite + Drone)")
+    print(f"Total Images Loaded : {total_images_processed} (including all views)")
     print(f"Throughput (Batch)  : {batches_per_second:.2f} batches/sec")
     print(f"Throughput (Image)  : {images_per_second:.2f} images/sec")
     print("===================================================")
 
 
 if __name__ == "__main__":
-    # benchmark_dataloader()
     benchmark_cross_view_dataloader()
