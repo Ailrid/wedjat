@@ -6,7 +6,7 @@ Project: wedjat-metric
 
 import time
 from torch.utils.data import DataLoader
-from metric.core.dataloader import TiffLoader
+from metric.core.dataloader import TiffLoader, get_cross_view_dataloader
 
 
 def benchmark_dataloader():
@@ -84,5 +84,83 @@ def benchmark_dataloader():
     print("===================================================")
 
 
+def benchmark_cross_view_dataloader():
+    # Dataset configuration matching your environment
+    dataset_dir = "dataset/cross_view/train"  # Path containing 'drone' and 'satellite' subdirectories
+    input_size = (224, 224)
+    batch_size = 4
+    drone_samples_per_location = 2  # Number of drone images per location
+    num_workers = 4
+    is_train = True
+
+    print("Initializing CrossView DataLoader...")
+    dataloader = get_cross_view_dataloader(
+        root_dir=dataset_dir,
+        input_size=input_size,
+        batch_size=batch_size,
+        drone_samples_per_location=drone_samples_per_location,
+        is_train=is_train,
+        num_workers=num_workers,
+    )
+
+    print(f"Starting benchmark with num_workers={num_workers}...")
+    start_time = time.time()
+    batch_count = 0
+    total_images_processed = 0
+
+    # Calculate total images in a single sample pair (1 satellite + N drone images)
+    images_per_sample = 1 + drone_samples_per_location
+
+    iterator = iter(dataloader)
+    try:
+        # Warm-up step: PyTorch worker processes start-up time
+        sat_batch, drone_batch, ids = next(iterator)
+        batch_count += 1
+
+        print("--- Shape Verification ---")
+        print("Satellite batch shape :", sat_batch.shape)  # [B, C, H, W]
+        print(
+            "Drone batch shape     :", drone_batch.shape
+        )  # [B, K, C, H, W] or [B, C, H, W]
+        print("Location IDs sample   :", ids[: min(4, len(ids))])
+
+        current_batch_size = sat_batch.size(0)
+        total_images_processed += current_batch_size * images_per_sample
+        print("Warm-up completed. Iterating through dataset...\n")
+
+    except StopIteration:
+        print(
+            f"No valid dataset found at '{dataset_dir}'. Please verify directory structure."
+        )
+        return
+
+    # Benchmark dataset iteration speed
+    for sat_batch, drone_batch, ids in iterator:
+        batch_count += 1
+        current_batch_size = sat_batch.size(0)
+        total_images_processed += current_batch_size * images_per_sample
+
+        if batch_count % 10 == 0:
+            elapsed = time.time() - start_time
+            print(
+                f"Processed {batch_count} batches ({total_images_processed} images) in {elapsed:.2f}s..."
+            )
+
+    end_time = time.time()
+    total_time = end_time - start_time
+
+    batches_per_second = batch_count / total_time
+    images_per_second = total_images_processed / total_time
+
+    print("\n================ BENCHMARK RESULTS ================")
+    print(f"Total Time Elapsed  : {total_time:.2f} seconds")
+    print(f"Total Batches Read  : {batch_count}")
+    print(f"Total Images Loaded : {total_images_processed} (Satellite + Drone)")
+    print(f"Throughput (Batch)  : {batches_per_second:.2f} batches/sec")
+    print(f"Throughput (Image)  : {images_per_second:.2f} images/sec")
+    print("===================================================")
+
+
 if __name__ == "__main__":
-    benchmark_dataloader()
+    # benchmark_dataloader()
+    benchmark_cross_view_dataloader()

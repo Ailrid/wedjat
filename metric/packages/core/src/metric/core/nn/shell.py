@@ -116,7 +116,7 @@ class Shell(Network):
                         f"          File save weight dimension: {list(loaded_state_dict[key].shape)}"
                     )
 
-            # 如果该组件存在任何不一致，立刻抛出详细的崩溃报告，绝不带病运行
+            # 如果该组件存在任何不一致，立刻抛出详细的崩溃报告
             if missing_keys or unexpected_keys or shape_mismatches:
                 error_title = (
                     f"\nWeight Dimension Mismatch inside sub-component [{name}]!"

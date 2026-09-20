@@ -5,6 +5,7 @@ assets
 logs
 checkpoints
 experiment
+dataset
 
 *.onnx
 *.png
