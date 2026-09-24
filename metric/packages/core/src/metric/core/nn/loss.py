@@ -1,5 +1,10 @@
-from typing import Optional
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: wedjat-metric
+"""
 
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

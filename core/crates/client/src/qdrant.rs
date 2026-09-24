@@ -7,9 +7,9 @@
 use qdrant_client::{
     Qdrant,
     qdrant::{
-        Condition, FieldCondition, Filter, GeoPoint, GeoRadius, Match, QueryPointsBuilder,
-        QueryResponse, ScrollPointsBuilder, condition::ConditionOneOf, r#match::MatchValue,
-        point_id::PointIdOptions, vector_output::Vector,
+        Condition, FieldCondition, Filter, GeoPoint, GeoRadius, QueryPointsBuilder, QueryResponse,
+        ScrollPointsBuilder, condition::ConditionOneOf, point_id::PointIdOptions,
+        vector_output::Vector,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -30,30 +30,35 @@ pub struct Location {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FeaturePayload {
+pub struct Payload {
     pub location: Location,
-    pub pixel_x: i64,
-    pub pixel_y: i64,
+    pub x: u32,
+    pub y: u32,
     pub src: String,
     pub res: Vec<f64>,
 }
 
 #[derive(Debug, Clone)]
-pub struct SearchResultItem {
+pub struct QdrantResult {
     pub id: String,
     pub score: f32,
-    pub payload: FeaturePayload,
+    pub payload: Payload,
 }
+
 /// Qdrant Vector Database Client.
 ///
 /// # Fields
 ///
 /// - `qdrant` (`Qdrant`) - Qdrant client.
 /// - `collection_name` (`String`) - Collection name.
+/// - `limit` (`usize`) - Limit of results.
+/// - `radius` (`f32`) - Radius of the search area.
 /// - `runtime` (`Runtime`) - Tokio runtime.
 pub struct QdrantClient {
     qdrant: Qdrant,
     collection_name: String,
+    limit: usize,
+    radius: f32,
     runtime: Runtime,
 }
 
@@ -61,20 +66,24 @@ impl QdrantClient {
     pub fn new(
         url: impl AsRef<str>,
         port: usize,
-        collection_name: &str,
+        collection_name: impl AsRef<str>,
+        limit: usize,
+        radius: f32,
     ) -> Result<Self, QdrantClientError> {
         let client = Qdrant::from_url(format!("{}:{}", url.as_ref(), port).as_str()).build()?;
         let runtime = Runtime::new().expect("Failed to create Tokio runtime");
         Ok(Self {
             qdrant: client,
-            collection_name: collection_name.to_string(),
+            collection_name: String::from(collection_name.as_ref()),
+            limit,
+            radius,
             runtime,
         })
     }
     fn convert_response(
         &self,
         response: QueryResponse,
-    ) -> Result<Vec<SearchResultItem>, QdrantClientError> {
+    ) -> Result<Vec<QdrantResult>, QdrantClientError> {
         let mut results = Vec::new();
 
         for point in response.result {
@@ -86,7 +95,7 @@ impl QdrantClient {
                     .collect(),
             );
 
-            let payload: FeaturePayload = serde_json::from_value(json_value)?;
+            let payload: Payload = serde_json::from_value(json_value)?;
 
             let point_id = point
                 .id
@@ -97,7 +106,7 @@ impl QdrantClient {
                 })
                 .unwrap_or_default();
 
-            results.push(SearchResultItem {
+            results.push(QdrantResult {
                 id: point_id,
                 score: point.score,
                 payload,
@@ -111,16 +120,11 @@ impl QdrantClient {
     /// # Arguments
     ///
     /// - `vec` (`Vec<f32>`) - Feature vector.
-    /// - `limit` (`u64`) - Limit of results.
-    pub fn query_global(
-        &self,
-        vec: Vec<f32>,
-        limit: u64,
-    ) -> Result<Vec<SearchResultItem>, QdrantClientError> {
+    pub fn query_global(&self, vec: Vec<f32>) -> Result<Vec<QdrantResult>, QdrantClientError> {
         self.runtime.block_on(async {
             let query_request = QueryPointsBuilder::new(self.collection_name.clone())
                 .query(vec)
-                .limit(limit)
+                .limit(self.limit as u64)
                 .with_payload(true);
             let response = self.qdrant.query(query_request).await?;
             self.convert_response(response)
@@ -131,47 +135,32 @@ impl QdrantClient {
     /// # Arguments
     ///
     /// - `vec` (`Vec<f32>`) - Feature vector.
-    /// - `limit` (`u64`) - Limit of results.
     /// - `lon` (`f64`) - Longitude.
     /// - `lat` (`f64`) - Latitude.
-    /// - `radius_meters` (`f32`) - Radius.
-    /// - `src` (`impl Into<String>`) - File source name.
+
     pub fn query_filter(
         &self,
         vec: Vec<f32>,
-        limit: u64,
         lon: f64,
         lat: f64,
-        radius_meters: f32,
-        src: impl Into<String>,
-    ) -> Result<Vec<SearchResultItem>, QdrantClientError> {
+    ) -> Result<Vec<QdrantResult>, QdrantClientError> {
         let geo_condition = Condition {
             condition_one_of: Some(ConditionOneOf::Field(FieldCondition {
                 key: "location".to_string(),
                 geo_radius: Some(GeoRadius {
                     center: Some(GeoPoint { lon, lat }),
-                    radius: radius_meters,
+                    radius: self.radius,
                 }),
                 ..Default::default()
             })),
         };
 
-        let src_condition = Condition {
-            condition_one_of: Some(ConditionOneOf::Field(FieldCondition {
-                key: "src".to_string(),
-                r#match: Some(Match {
-                    match_value: Some(MatchValue::Keyword(src.into())),
-                }),
-                ..Default::default()
-            })),
-        };
-
-        let filter = Filter::must(vec![geo_condition, src_condition]);
+        let filter = Filter::must(vec![geo_condition]);
 
         self.runtime.block_on(async {
             let query_request = QueryPointsBuilder::new(self.collection_name.clone())
                 .query(vec)
-                .limit(limit)
+                .limit(self.limit as u64)
                 .filter(filter)
                 .with_payload(true);
 
@@ -285,7 +274,7 @@ mod tests {
         for sample in &samples {
             let start = Instant::now();
 
-            let search_results = client.query_global(sample.vector.clone(), 1)?;
+            let search_results = client.query_global(sample.vector.clone())?;
             let elapsed = start.elapsed().as_secs_f64();
             latencies_sec.push(elapsed);
 
@@ -337,8 +326,10 @@ mod tests {
         let url = "http://127.0.0.1";
         let port = 6334;
         let collection_name = "test_tiff";
+        let limit = 1;
+        let radius = 500.0;
 
-        let client = QdrantClient::new(url, port, collection_name)
+        let client = QdrantClient::new(url, port, collection_name, limit, radius)
             .expect("Failed to initialize QdrantClient");
 
         let report = run_performance_and_recall_test(&client, 500)

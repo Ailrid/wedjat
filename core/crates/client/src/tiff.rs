@@ -5,6 +5,7 @@
 //! Project: wedjat-core
 
 use opencv::core::{CV_8UC1, CV_8UC3, Mat, MatTraitManual, Vec3b};
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -32,11 +33,11 @@ pub enum TiffClientError {
 /// - `decoder` (`Decoder<BufReader<File>>`) - Decoder.
 /// - `file_path` (`PathBuf`) - Full path of tiff file.
 /// - `width` (`u32`) - TIFF image width.
-/// - `height` (`u32`) -  TIFF image height.
-/// - `tile_width` (`u32`) -  TIFF tile width.
-/// - `tile_height` (`u32`) -  TIFF tile height.
-/// - `samples_per_pixel` (`u32`) -  Channels per pixel.
-/// - `pixel_scale` (`Vec<f64>`) -  x and y and z scale.
+/// - `height` (`u32`) - TIFF image height.
+/// - `tile_width` (`u32`) - TIFF tile width.
+/// - `tile_height` (`u32`) - TIFF tile height.
+/// - `samples_per_pixel` (`u32`) - Channels per pixel.
+/// - `pixel_scale` (`Vec<f64>`) - x and y and z scale.
 pub struct TiledTiffReader {
     pub decoder: Decoder<BufReader<File>>,
     pub file_path: PathBuf,
@@ -91,19 +92,25 @@ impl TiledTiffReader {
         (self.width + self.tile_width - 1) / self.tile_width
     }
 
+    /// Crops a region based on pixel coordinates.
+    ///
+    /// - `x`: Top-left horizontal coordinate in image space.
+    /// - `y`: Top-left vertical coordinate in image space.
+    /// - `crop_w`: Requested width in pixels.
+    /// - `crop_h`: Requested height in pixels.
     pub fn crop_region(
         &mut self,
-        px: u32,
-        py: u32,
-        req_width: u32,
-        req_height: u32,
+        x: u32,
+        y: u32,
+        crop_w: u32,
+        crop_h: u32,
     ) -> Result<Mat, TiffClientError> {
-        if req_width == 0 || req_height == 0 || px >= self.width || py >= self.height {
+        if crop_w == 0 || crop_h == 0 || x >= self.width || y >= self.height {
             return Err(TiffClientError::InvalidCropDimension);
         }
 
-        let actual_w = req_width.min(self.width - px);
-        let actual_h = req_height.min(self.height - py);
+        let actual_w = crop_w.min(self.width - x);
+        let actual_h = crop_h.min(self.height - y);
 
         let cv_type = if self.samples_per_pixel == 1 {
             CV_8UC1
@@ -114,37 +121,36 @@ impl TiledTiffReader {
         let channels = self.samples_per_pixel as usize;
         let mut out_mat = unsafe { Mat::new_rows_cols(actual_h as i32, actual_w as i32, cv_type)? };
 
-        let start_tile_col = px / self.tile_width;
-        let end_tile_col = (px + actual_w - 1) / self.tile_width;
-        let start_tile_row = py / self.tile_height;
-        let end_tile_row = (py + actual_h - 1) / self.tile_height;
+        let start_tile_x = x / self.tile_width;
+        let end_tile_x = (x + actual_w - 1) / self.tile_width;
+        let start_tile_y = y / self.tile_height;
+        let end_tile_y = (y + actual_h - 1) / self.tile_height;
 
         let tiles_across = self.tiles_across();
 
-        for r in start_tile_row..=end_tile_row {
-            for c in start_tile_col..=end_tile_col {
-                let chunk_index = r * tiles_across + c;
+        for ty in start_tile_y..=end_tile_y {
+            for tx in start_tile_x..=end_tile_x {
+                let chunk_index = ty * tiles_across + tx;
 
                 let tile_data = match self.decoder.read_chunk(chunk_index)? {
                     DecodingResult::U8(data) => data,
                     _ => return Err(TiffClientError::UnsupportedFormat),
                 };
 
-                let t_x0 = c * self.tile_width;
-                let t_y0 = r * self.tile_height;
+                let tile_x0 = tx * self.tile_width;
+                let tile_y0 = ty * self.tile_height;
 
-                // Dynamically calculate actual dimensions for edge tiles that might be truncated
-                let cur_tile_w = self.tile_width.min(self.width - t_x0);
-                let cur_tile_h = self.tile_height.min(self.height - t_y0);
+                let cur_tile_w = self.tile_width.min(self.width - tile_x0);
+                let cur_tile_h = self.tile_height.min(self.height - tile_y0);
 
-                let inter_x0 = px.max(t_x0);
-                let inter_x1 = (px + actual_w).min(t_x0 + cur_tile_w);
-                let inter_y0 = py.max(t_y0);
-                let inter_y1 = (py + actual_h).min(t_y0 + cur_tile_h);
+                let inter_x0 = x.max(tile_x0);
+                let inter_x1 = (x + actual_w).min(tile_x0 + cur_tile_w);
+                let inter_y0 = y.max(tile_y0);
+                let inter_y1 = (y + actual_h).min(tile_y0 + cur_tile_h);
 
-                for y in inter_y0..inter_y1 {
-                    let tile_local_y = y - t_y0;
-                    let tile_local_x_start = inter_x0 - t_x0;
+                for curr_y in inter_y0..inter_y1 {
+                    let tile_local_y = curr_y - tile_y0;
+                    let tile_local_x_start = inter_x0 - tile_x0;
 
                     let src_start =
                         ((tile_local_y * cur_tile_w + tile_local_x_start) as usize) * channels;
@@ -155,8 +161,8 @@ impl TiledTiffReader {
                         return Err(TiffClientError::UnsupportedFormat);
                     }
 
-                    let mat_local_y = y - py;
-                    let mat_local_x_start = inter_x0 - px;
+                    let mat_local_y = curr_y - y;
+                    let mat_local_x_start = inter_x0 - x;
                     let dest_start = (mat_local_x_start as usize) * channels;
                     let dest_end = dest_start + copy_len;
 
@@ -188,39 +194,47 @@ impl TiledTiffReader {
 /// # Fields
 ///
 /// - `tiff_folder` (`PathBuf`) - TIFF folder path.
-/// - `tiff_reader` (`Option<TiledTiffReader>`) - TIFF file reader.
+/// - `tiff_reader` (`RefCell<Option<TiledTiffReader>>`) - TIFF file reader.
 pub struct TiffClient {
     tiff_folder: PathBuf,
-    pub tiff_reader: Option<TiledTiffReader>,
+    pub tiff_reader: RefCell<Option<TiledTiffReader>>,
 }
 
 impl TiffClient {
     pub fn new(tiff_folder: impl AsRef<Path>) -> Self {
         Self {
             tiff_folder: tiff_folder.as_ref().to_path_buf(),
-            tiff_reader: None,
+            tiff_reader: RefCell::new(None),
         }
     }
 
-    pub fn get_tile(
-        &mut self,
+    /// Crops a region from the specified TIFF image using standard pixel coordinates.
+    pub fn crop(
+        &self,
         x: u32,
         y: u32,
         width: u32,
         height: u32,
-        tiff_name: &str,
+        tiff_name: impl Into<String>,
     ) -> Result<Mat, TiffClientError> {
-        let tiff_path = self.tiff_folder.join(tiff_name);
+        let tiff_name_str = tiff_name.into();
+        let tiff_path = self.tiff_folder.join(&tiff_name_str);
+        let mut reader_borrow = self.tiff_reader.borrow_mut();
 
-        if self.tiff_reader.is_none() {
+        let need_reload = match reader_borrow.as_ref() {
+            Some(reader) => reader.file_path != tiff_path,
+            None => true,
+        };
+
+        if need_reload {
             let reader = TiledTiffReader::new(tiff_path)?;
-            self.tiff_reader = Some(reader);
+            *reader_borrow = Some(reader);
         }
-        let reader = self.tiff_reader.as_mut().unwrap();
+
+        let reader = reader_borrow.as_mut().unwrap();
         reader.crop_region(x, y, width, height)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -232,7 +246,6 @@ mod tests {
     fn test_tiff_reader_and_crop_performance() {
         let mut tiff = TiledTiffReader::new("output_tiled.tif").expect("Failed to open TIFF file");
 
-        // Print basic Metadata
         println!("=== Tiled TIFF Metadata ===");
         println!("File: {:?}", tiff.file_path);
         println!("Dimensions: {}x{}", tiff.width, tiff.height);
@@ -254,19 +267,19 @@ mod tests {
         let mut successful_crops = 0;
 
         for i in 0..num_iterations {
-            let px = if max_x > 0 {
+            let x = if max_x > 0 {
                 rng.random_range(0..=max_x)
             } else {
                 0
             };
-            let py = if max_y > 0 {
+            let y = if max_y > 0 {
                 rng.random_range(0..=max_y)
             } else {
                 0
             };
 
             let crop_start = Instant::now();
-            let result = tiff.crop_region(px, py, crop_size, crop_size);
+            let result = tiff.crop_region(x, y, crop_size, crop_size);
             let _crop_duration = crop_start.elapsed();
 
             match result {
@@ -274,7 +287,7 @@ mod tests {
                     successful_crops += 1;
                 }
                 Err(e) => {
-                    eprintln!("Crop failed at iteration {} ({}, {}): {:?}", i, px, py, e);
+                    eprintln!("Crop failed at iteration {} ({}, {}): {:?}", i, x, y, e);
                 }
             }
         }

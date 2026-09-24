@@ -2,12 +2,12 @@ use crate::error::BackendError;
 use opencv::core::{Mat, MatTraitConstManual};
 use rknn3::rknn::Rknn3;
 
-pub struct FeatureExtractor {
+pub struct Metric {
     model: Rknn3,
 }
 
-impl FeatureExtractor {
-    /// Create a new FeatureExtractor instance.
+impl Metric {
+    /// Create a new Metric instance.
     pub fn new(
         device_id: impl Into<String>,
         model_path: impl Into<String>,
@@ -56,7 +56,7 @@ impl FeatureExtractor {
 //             return Err("Failed to load image from path".into());
 //         }
 
-//         let mut extractor = FeatureExtractor::new(device_id, model_path, weight_path)?;
+//         let mut extractor = Metric::new(device_id, model_path, weight_path)?;
 
 //         // Preprocess image without rigid dimension assumptions
 //         let target_dim = Some((224, 224));

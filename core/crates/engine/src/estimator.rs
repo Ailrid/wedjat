@@ -1,442 +1,504 @@
-use crate::types::{ENUPoint, PredictPoint, PredictResult};
+use camera::Frame;
+use client::qdrant::QdrantResult;
 use nalgebra::{Matrix3, Vector3};
+use opencv::core::{Mat, MatTraitConst, Point2f};
 
-//这个结构体用于保存一个可能的路径
+
+#[derive(Debug, Clone)]
+pub struct CenterLocation {
+    pub pixel_x: u32,
+    pub pixel_y: u32,
+    pub ecef_x: f64,
+    pub ecef_y: f64,
+    pub ecef_z: f64,
+    pub lat: f64,
+    pub lon: f64,
+    pub yaw: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct FrameLocation {
+    pub frame: Frame,
+    pub item: QdrantResult,
+    pub center: CenterLocation,
+}
+
+#[derive(Debug, Clone)]
+pub enum LocationResult {
+    Location(FrameLocation),
+    Uncertain(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct FramePoint {
+    pub inliers: usize,
+    pub center_location: CenterLocation,
+    pub qdrant_result: QdrantResult,
+}
+
+fn geodetic_to_ecef(lat: f64, lon: f64, alt: f64) -> (f64, f64, f64) {
+    const A: f64 = 6_378_137.0;
+    const F: f64 = 1.0 / 298.257_223_563;
+    const B: f64 = A * (1.0 - F);
+    const E2: f64 = (A * A - B * B) / (A * A);
+
+    let lat_rad = lat.to_radians();
+    let lon_rad = lon.to_radians();
+
+    let sin_lat = lat_rad.sin();
+    let cos_lat = lat_rad.cos();
+    let sin_lon = lon_rad.sin();
+    let cos_lon = lon_rad.cos();
+
+    let n = A / (1.0 - E2 * sin_lat * sin_lat).sqrt();
+
+    let x = (n + alt) * cos_lat * cos_lon;
+    let y = (n + alt) * cos_lat * sin_lon;
+    let z = (n * (1.0 - E2) + alt) * sin_lat;
+
+    (x, y, z)
+}
+
+impl FramePoint {
+    pub fn new(
+        inliers: usize,
+        center: Point2f,
+        h_matrix: &Mat,
+        qdrant_result: QdrantResult,
+    ) -> Result<Self, opencv::error::Error> {
+        let payload = &qdrant_result.payload;
+
+        let res_x = payload.res.get(0).copied().unwrap_or(0.5);
+        let res_y = payload.res.get(1).copied().unwrap_or(0.5);
+
+        let dx_meters = center.x as f64 * res_x;
+        let dy_meters = center.y as f64 * res_y;
+
+        const METERS_PER_DEGREE_LAT: f64 = 111_000.0;
+        let meters_per_degree_lon = METERS_PER_DEGREE_LAT * payload.location.lat.to_radians().cos();
+
+        let delta_lat = -dy_meters / METERS_PER_DEGREE_LAT;
+        let delta_lon = dx_meters / meters_per_degree_lon;
+
+        let calculated_lat = payload.location.lat + delta_lat;
+        let calculated_lon = payload.location.lon + delta_lon;
+
+        let (ecef_x, ecef_y, ecef_z) = geodetic_to_ecef(calculated_lat, calculated_lon, 0.0);
+
+        let h00 = *h_matrix.at_2d::<f64>(0, 0)?;
+        let h10 = *h_matrix.at_2d::<f64>(1, 0)?;
+        let yaw_rad = h10.atan2(h00);
+        let yaw_deg = yaw_rad.to_degrees() as f32;
+
+        let pixel_x = payload.x + center.x as u32;
+        let pixel_y = payload.y + center.y as u32;
+
+        let center_location = CenterLocation {
+            pixel_x,
+            pixel_y,
+            ecef_x,
+            ecef_y,
+            ecef_z,
+            lat: calculated_lat,
+            lon: calculated_lon,
+            yaw: yaw_deg,
+        };
+
+        Ok(Self {
+            inliers,
+            center_location,
+            qdrant_result,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EnuPoint {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+impl EnuPoint {
+    pub fn distance_to(&self, other: &EnuPoint) -> f64 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2) + (self.z - other.z).powi(2))
+            .sqrt()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackState {
+    Initializing,
+    Tracking,
+    Lost,
+    Dead,
+}
+
 pub struct Trajectory {
-    /// 记录上一次更新后的路径长度，用于判断本帧是否成功匹配
-    pub pre_length: usize,
-    /// 路径中所有的绝对位置观测点
-    pub points: Vec<ENUPoint>,
-    /// 评估路径的生命值（例如 0.0 ~ 20.0），决定是否保留该路径
+    pub points: Vec<(FramePoint, EnuPoint)>,
     pub health: f32,
-    /// 该轨迹累计获得的内点总数，代表了轨迹的“历史底气”
     pub accumulated_inliers: usize,
-    /// 记录该轨迹最近连续多少帧没有获得新的观测点
     pub consecutive_failures: usize,
-    /// 轨迹创建的时间戳，用于计算轨迹的“年龄”
+    pub consecutive_hits: usize,
     pub start_time: std::time::Instant,
-    // 上一次的位置
-    pub last_pos: Vector3<f32>,
-    // 预测的位置
-    pub pred_pos: Option<Vector3<f32>>,
-    // 预测的不确定性
-    pub uncertainty: f32,
-    //ENU to ECEF
-    pub rotate: Matrix3<f32>,
+    pub rotate: Matrix3<f64>,
     pub translation: Vector3<f64>,
+    pub state: TrackState,
+    pub total_span: f64,
+    hover_threshold: f64,
+    init_hits: usize,
+    dead_frames: usize,
 }
 
 impl Trajectory {
-    /// 创建新轨迹，必须由一个高质量的初始点开启
-    pub fn new(first_point: PredictPoint) -> Self {
-        // 设置东北天坐标系原点
-        let translation = Vector3::new(first_point.x, first_point.y, first_point.z);
-        // 计算旋转矩阵 (ECEF -> ENU)
-        // Up轴：指向天空
-        let up = translation.normalize();
-        // 临时北极轴 [0, 0, 1]
-        let z_axis = Vector3::new(0.0, 0.0, 1.0);
-        // East轴
-        let east = z_axis.cross(&up).normalize();
-        // North轴
-        let north = up.cross(&east).normalize();
-        // 构造旋转矩阵
-        let r = east.cast::<f32>();
-        let n = north.cast::<f32>();
-        let u = up.cast::<f32>();
-
-        let rotate = Matrix3::new(
-            r.x, r.y, r.z, // 第一行 (East)
-            n.x, n.y, n.z, // 第二行 (North)
-            u.x, u.y, u.z, // 第三行 (Up)
+    pub fn new(
+        first_point: FramePoint,
+        hover_threshold: f64,
+        init_hits: usize,
+        dead_frames: usize,
+    ) -> Self {
+        let translation = Vector3::new(
+            first_point.center_location.ecef_x,
+            first_point.center_location.ecef_y,
+            first_point.center_location.ecef_z,
         );
 
-        // 将第一个点转为内部的 ENUPoint
-        // 第一个点相对于自己，pos 永远是 [0, 0, 0]
-        let first_enu_point = ENUPoint {
-            pos: Vector3::zeros(),
-            utm_x: first_point.utm_x,
-            utm_y: first_point.utm_y,
-            crs: first_point.crs.clone(),
-            pixel_x: first_point.pixel_x,
-            pixel_y: first_point.pixel_y,
-            src: first_point.src.clone(),
-            row_pos: first_point,
+        let up = translation.normalize();
+        let z_axis = Vector3::new(0.0, 0.0, 1.0);
+        let east = z_axis.cross(&up).normalize();
+        let north = up.cross(&east).normalize();
+
+        let rotate = Matrix3::new(
+            east.x, east.y, east.z, north.x, north.y, north.z, up.x, up.y, up.z,
+        );
+
+        let first_enu_point = EnuPoint {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
         };
+
+        let initial_inliers = first_point.inliers;
 
         Self {
-            pre_length: 0,
-            accumulated_inliers: first_enu_point.row_pos.inlier_count,
+            points: vec![(first_point, first_enu_point)],
             health: 15.0,
+            accumulated_inliers: initial_inliers,
             consecutive_failures: 0,
+            consecutive_hits: 1,
             start_time: std::time::Instant::now(),
-            // 局部系起点永远是 0
-            last_pos: Vector3::zeros(),
-            pred_pos: None,
-            uncertainty: 1.0,
-            points: vec![first_enu_point],
             rotate,
             translation,
+            state: TrackState::Initializing,
+            total_span: 0.0,
+            hover_threshold,
+            init_hits,
+            dead_frames,
         }
     }
-    /// 外部 ECEF -> 内部 ENU
-    pub fn world_to_local(&self, ecef_x: f64, ecef_y: f64, ecef_z: f64) -> Vector3<f32> {
+
+    pub fn ecef_to_enu(&self, ecef_x: f64, ecef_y: f64, ecef_z: f64) -> EnuPoint {
         let ecef_vec = Vector3::new(ecef_x, ecef_y, ecef_z);
-        let delta = ecef_vec - self.translation; // f64 减法保精度
-        self.rotate * delta.cast::<f32>() // 转 f32 后旋转
-    }
-
-    /// 内部 ENU -> 外部 ECEF
-    pub fn local_to_world(&self, local_pos: &Vector3<f32>) -> (f64, f64, f64) {
-        // 旋转矩阵转置就是逆转换
-        let delta_ecef = self.rotate.transpose() * local_pos;
-        let res = delta_ecef.cast::<f64>() + self.translation;
-        (res.x, res.y, res.z)
-    }
-
-    /// 向轨迹添加新点，并立即更新累积信息
-    pub fn push(&mut self, new_point: &PredictPoint) {
-        // 累加内点数
-        self.accumulated_inliers += new_point.inlier_count;
-
-        // 连续失败计数立刻清零
-        self.consecutive_failures = 0;
-
-        // ECEF (f64) -> ENU (f32)
-        let local_pos = self.world_to_local(new_point.x, new_point.y, new_point.z);
-
-        // 存入
-        let enu_point = ENUPoint {
-            pos: local_pos,             // 局部切平面坐标 (用于内部计算)
-            row_pos: new_point.clone(), // 原始 ECEF 观测 (用于对账或输出)
-            utm_x: new_point.utm_x,
-            utm_y: new_point.utm_y,
-            crs: new_point.crs.clone(),
-            pixel_x: new_point.pixel_x,
-            pixel_y: new_point.pixel_y,
-            src: new_point.src.clone(),
-        };
-
-        self.points.push(enu_point);
-    }
-
-    /// 每一帧调用的状态维护函数
-    pub fn update(&mut self) {
-        match &self.points[..] {
-            // 抓到了新点
-            [.., p_curr] if self.points.len() > self.pre_length => {
-                self.pre_length = self.points.len();
-
-                // 用地图匹配给的 ENU 坐标覆盖预测值
-                self.last_pos = p_curr.pos;
-
-                // 状态维护
-                self.consecutive_failures = 0;
-                self.uncertainty = 1.0; // 既然匹配到了，不确定性重置
-
-                // 奖励健康值
-                let bonus = (p_curr.row_pos.inlier_count as f32 / 20.0).min(2.0);
-                self.health = (self.health + 1.0 + bonus).min(30.0);
-            }
-
-            // 没抓到新点
-            _ => {
-                self.consecutive_failures += 1;
-                // 惯性续航：如果这一帧有 IMU 预测，就用预测值更新 last_pos
-                // 这样下一秒的 predict 就能从这个“推测的位置”继续起跳
-                if let Some(prediction) = self.pred_pos {
-                    self.last_pos = prediction;
-                }
-                // 惩罚健康值
-                let penalty = 1.0 * (self.consecutive_failures as f32);
-                self.health -= penalty;
-                // 增加不确定性
-                self.uncertainty += 0.5;
-            }
+        let delta = ecef_vec - self.translation;
+        let enu_vec = self.rotate * delta;
+        EnuPoint {
+            x: enu_vec.x,
+            y: enu_vec.y,
+            z: enu_vec.z,
         }
-        // 清空预测
-        self.pred_pos = None;
     }
 
-    /// 如果给了位移，直接加
-    pub fn predict(&mut self, displacement: &Vector3<f32>) {
-        self.pred_pos = Some(self.last_pos + displacement);
+    pub fn distance(&self, point: &FramePoint) -> f32 {
+        if let Some((_, last_enu)) = self.points.last() {
+            let candidate_enu = self.ecef_to_enu(
+                point.center_location.ecef_x,
+                point.center_location.ecef_y,
+                point.center_location.ecef_z,
+            );
+            let spatial_dist = last_enu.distance_to(&candidate_enu) as f32;
+            let quality_factor = 10.0 / (point.inliers as f32 + 1.0);
+
+            spatial_dist + quality_factor
+        } else {
+            f32::MAX
+        }
     }
 
-    pub fn distance(&self, new_point: &PredictPoint) -> f32 {
-        // 将 ECEF 地图点转换到局部 ENU 切平面
-        let obs_pos_enu = self.world_to_local(new_point.x, new_point.y, new_point.z);
-        let spatial_dist;
-        match self.pred_pos {
-            Some(prediction) => {
-                // 有外部给的预测，用外部预测来算
-                spatial_dist = (obs_pos_enu - prediction).norm();
+    pub fn update(&mut self, point_opt: Option<&FramePoint>) {
+        match point_opt {
+            Some(point) => {
+                self.consecutive_failures = 0;
+                self.consecutive_hits += 1;
+                self.health = (self.health + 1.0).min(20.0);
+
+                let new_enu = self.ecef_to_enu(
+                    point.center_location.ecef_x,
+                    point.center_location.ecef_y,
+                    point.center_location.ecef_z,
+                );
+
+                if let Some((_, last_enu)) = self.points.last() {
+                    let step_dist = last_enu.distance_to(&new_enu);
+
+                    if step_dist >= self.hover_threshold {
+                        self.accumulated_inliers += point.inliers;
+                        self.total_span += step_dist;
+                        self.points.push((point.clone(), new_enu));
+                    } else if let Some(last_pair) = self.points.last_mut() {
+                        last_pair.0 = point.clone();
+                    }
+                }
+
+                match self.state {
+                    TrackState::Initializing => {
+                        if self.consecutive_hits >= self.init_hits {
+                            self.state = TrackState::Tracking;
+                        }
+                    }
+                    TrackState::Lost => {
+                        self.state = TrackState::Tracking;
+                    }
+                    _ => {}
+                }
             }
             None => {
-                // 没有外部的预测，用内部平均速度来算
-                let last_point_time = self.points[self.points.len() - 1].row_pos.time;
-                let dt = (new_point.time - last_point_time).as_secs_f32();
+                self.consecutive_failures += 1;
+                self.consecutive_hits = 0;
+                self.health -= 3.0;
 
-                let v = match &self.points[..] {
-                    [.., p_prve, p_last] => (p_last.pos - p_prve.pos) / dt,
-                    _ => Vector3::zeros(),
-                };
-                // 尝试匀速外推
-                let fallback_prediction = self.last_pos + v * dt;
-                spatial_dist = (obs_pos_enu - fallback_prediction).norm();
+                match self.state {
+                    TrackState::Tracking => {
+                        self.state = TrackState::Lost;
+                    }
+                    TrackState::Lost => {
+                        if self.consecutive_failures > self.dead_frames || self.health <= 0.0 {
+                            self.state = TrackState::Dead;
+                        }
+                    }
+                    TrackState::Dead => {}
+                    TrackState::Initializing => {
+                        self.state = TrackState::Dead;
+                    }
+                }
             }
         }
-        let quality_factor = 20.0 / (new_point.inlier_count as f32).max(1.0);
-        spatial_dist * quality_factor / self.uncertainty
     }
+}
 
-    /// 该轨迹现在给出的坐标，能不能信？
-    pub fn is_reliable(&self) -> bool {
-        // 宁缺毋滥原则：
-        // 1. 必须是这帧刚更新过的 (consecutive_failures == 0)
-        // 2. 轨迹不能太短 (至少要有 3 个点的时序共识)
-        // 3. 累计内点数要达标 (代表不仅有长度，还有质量)
-        self.consecutive_failures == 0 && self.points.len() >= 3 && self.accumulated_inliers > 60
-    }
+#[derive(Debug, Clone)]
+pub struct EstimatorConfig {
+    /// 悬停判定门限 (米)
+    pub hover_threshold: f64,
+    /// 轨迹由 Initializing 升级为 Tracking 所需的连续命中帧数
+    pub init_hits: usize,
+    /// 允许的最大连续跟丢/失配帧数，超过后轨迹转为 Dead
+    pub dead_frames: usize,
+    /// 匹配分配时的距离惩罚截断阈值 (距离超过此值的匹配将被忽略)
+    pub match_distance_cutoff: f32,
+    /// 输入原始观测点近距离 NMS 去重的平移聚类半径 (米)
+    pub nms_radius_meters: f64,
+    /// 轨迹必须具备的最小空间跨度 (米)，底气达标才对外输出定位
+    pub min_span_required: f64,
+}
 
-    /// 获取当前最新的坐标观测（用于 Estimator 输出）
-    pub fn get_latest_pos(&self) -> Option<PredictResult> {
-        if self.is_reliable() {
-            match &self.points[..] {
-                // 抓到了新点
-                [.., p_curr] => {
-                    let xyz = self.local_to_world(&p_curr.pos);
-                    Some(PredictResult {
-                        x: xyz.0,
-                        y: xyz.1,
-                        z: xyz.2,
-                        utm_x: p_curr.utm_x,
-                        utm_y: p_curr.utm_y,
-                        crs: p_curr.crs.clone(),
-                        src: p_curr.src.clone(),
-                        pixel_x: p_curr.pixel_x,
-                        pixel_y: p_curr.pixel_y,
-                    })
-                }
-                _ => {
-                    return None;
-                }
-            }
-        } else {
-            None
+impl Default for EstimatorConfig {
+    fn default() -> Self {
+        Self {
+            hover_threshold: 0.5,
+            init_hits: 3,
+            dead_frames: 5,
+            match_distance_cutoff: 15.0,
+            nms_radius_meters: 0.2,
+            min_span_required: 2.0,
         }
     }
 }
 
 pub struct Estimator {
-    //路径缓冲区
-    pub buffer_trajectory: Vec<Trajectory>,
-    // 合并阈值
-    pub merge_threshold: f32,
-    // 匹配阈值
-    pub match_threshold: f32,
+    pub trajectories: Vec<Trajectory>,
+    pub config: EstimatorConfig,
 }
 
 impl Estimator {
-    pub fn new(merge_threshold: f32, match_threshold: f32) -> Self {
+    pub fn new(config: EstimatorConfig) -> Self {
         Self {
-            buffer_trajectory: Vec::new(),
-            merge_threshold: merge_threshold,
-            match_threshold: match_threshold,
+            trajectories: Vec::new(),
+            config,
         }
     }
 
-    pub fn merge_points(&mut self, new_points: Vec<PredictPoint>) -> Vec<PredictPoint> {
-        // 只有一个点，不合并
-        if new_points.len() <= 1 {
-            return new_points;
+    pub fn update_frame(&mut self, raw_points: Vec<FramePoint>, frame: &Frame) -> LocationResult {
+        // 原始观测点聚类去重
+        let merged_points = self.merge_points(raw_points);
+        // 构建代价矩阵并做全局关联
+        let assignments = self.associate_points(&merged_points);
+        // 驱动所有轨迹演进 (Update) 与新轨迹开户
+        self.update_trajectories(&merged_points, &assignments);
+        // 垃圾回收 (Retain) 与全局定位裁决 (Estimate)
+        self.cleanup_and_estimate(frame)
+    }
+
+    /// 基于 ECEF 几何欧氏距离做单帧内点的近距离去重 (NMS)
+    fn merge_points(&self, points: Vec<FramePoint>) -> Vec<FramePoint> {
+        let mut merged: Vec<FramePoint> = Vec::new();
+        let radius_sq = self.config.nms_radius_meters.powi(2);
+
+        for pt in points {
+            let mut is_duplicate = false;
+            for existing in &merged {
+                let dx = pt.center_location.ecef_x - existing.center_location.ecef_x;
+                let dy = pt.center_location.ecef_y - existing.center_location.ecef_y;
+                let dz = pt.center_location.ecef_z - existing.center_location.ecef_z;
+                if (dx * dx + dy * dy + dz * dz) < radius_sq {
+                    is_duplicate = true;
+                    break;
+                }
+            }
+            if !is_duplicate {
+                merged.push(pt);
+            }
         }
+        merged
+    }
 
-        let mut merged_results = Vec::new();
-        let mut processed = vec![false; new_points.len()];
+    /// 第二道关：计算轨迹与观测点的 Cost 并做最优匹配分配
+    fn associate_points(&self, merged_points: &[FramePoint]) -> Vec<Option<usize>> {
+        let mut assignments: Vec<Option<usize>> = vec![None; self.trajectories.len()];
+        let mut assigned_points = vec![false; merged_points.len()];
 
-        // 贪婪合并
-        for i in 0..new_points.len() {
-            if processed[i] {
+        for (t_idx, traj) in self.trajectories.iter().enumerate() {
+            if traj.state == TrackState::Dead {
                 continue;
             }
 
-            // 找到所有与当前点 i 距离近的点（形成一个簇）
-            let mut cluster_indices = Vec::new();
-            cluster_indices.push(i); // 包含点 i 自己
-            processed[i] = true;
+            let mut best_cost = self.config.match_distance_cutoff;
+            let mut best_p_idx = None;
 
-            for j in (i + 1)..new_points.len() {
-                // 使用欧式距离判断是否属于同一个物理位置的冗余观测
-                if !processed[j] && new_points[i].distance(&new_points[j]) < self.merge_threshold {
-                    cluster_indices.push(j);
-                    processed[j] = true;
+            for (p_idx, point) in merged_points.iter().enumerate() {
+                if assigned_points[p_idx] {
+                    continue;
+                }
+
+                let cost = traj.distance(point);
+                if cost < best_cost {
+                    best_cost = cost;
+                    best_p_idx = Some(p_idx);
                 }
             }
 
-            // 如果簇内只有一个点，直接保留
-            if cluster_indices.len() == 1 {
-                merged_results.push(new_points[i].clone());
+            if let Some(p_idx) = best_p_idx {
+                assignments[t_idx] = Some(p_idx);
+                assigned_points[p_idx] = true;
+            }
+        }
+
+        assignments
+    }
+
+    /// 第三道关：更新已有轨迹，并为孤立未匹配点开辟新 Initializing 轨迹
+    fn update_trajectories(&mut self, merged_points: &[FramePoint], assignments: &[Option<usize>]) {
+        let mut point_assigned_flags = vec![false; merged_points.len()];
+
+        // 1. 更新现有轨迹
+        for (t_idx, traj) in self.trajectories.iter_mut().enumerate() {
+            if traj.state == TrackState::Dead {
                 continue;
             }
 
-            // 执行多源信息加权平差
-            let mut total_weight = 0.0;
-            let (mut sum_x, mut sum_y, mut sum_z) = (0.0, 0.0, 0.0);
-            let (mut sum_utm_x, mut sum_utm_y) = (0.0, 0.0);
-            let (mut sum_pixel_x, mut sum_pixel_y) = (0.0, 0.0);
-
-            let mut max_score = 0.0f32;
-            let mut total_inliers = 0;
-
-            for &idx in &cluster_indices {
-                let p = &new_points[idx];
-                let uncertainty = 1.05 - p.score as f64;
-
-                // 权重 = 证据强度 / 不确定性的平方
-                let weight = (p.inlier_count as f64 + 1.0) / uncertainty.powi(2);
-
-                sum_x += p.x * weight;
-                sum_y += p.y * weight;
-                sum_z += p.z * weight;
-                sum_utm_x += p.utm_x * weight;
-                sum_utm_y += p.utm_y * weight;
-                sum_pixel_x += p.pixel_x * weight;
-                sum_pixel_y += p.pixel_y * weight;
-
-                total_weight += weight;
-
-                max_score = max_score.max(p.score);
-                total_inliers += p.inlier_count;
-            }
-
-            // 生成融合后的高精度观测点
-            if total_weight > 0.0 {
-                merged_results.push(PredictPoint {
-                    x: sum_x / total_weight,
-                    y: sum_y / total_weight,
-                    z: sum_z / total_weight,
-                    utm_x: sum_utm_x / total_weight,
-                    utm_y: sum_utm_y / total_weight,
-                    pixel_x: sum_pixel_x / total_weight,
-                    pixel_y: sum_pixel_y / total_weight,
-                    src: new_points[cluster_indices[0]].src.clone(),
-                    crs: new_points[cluster_indices[0]].crs.clone(), // 以簇中第一个点的坐标系为准
-                    time: new_points[cluster_indices[0]].time,
-                    frame_id: new_points[cluster_indices[0]].frame_id,
-                    inlier_count: total_inliers, // 累加内点，增强该点在后续匹配中的胜算
-                    score: max_score,            // 保留最高置信度作为代表
-                });
+            if let Some(p_idx) = assignments[t_idx] {
+                traj.update(Some(&merged_points[p_idx]));
+                point_assigned_flags[p_idx] = true;
+            } else {
+                traj.update(None);
             }
         }
 
-        merged_results
+        // 2. 为未分配点创建新 Trajectory
+        for (p_idx, &is_assigned) in point_assigned_flags.iter().enumerate() {
+            if !is_assigned {
+                let new_traj = Trajectory::new(
+                    merged_points[p_idx].clone(),
+                    self.config.hover_threshold,
+                    self.config.init_hits,
+                    self.config.dead_frames,
+                );
+                self.trajectories.push(new_traj);
+            }
+        }
     }
 
-    ///更新轨迹，传入新的点对比历史轨迹给出预测
-    pub fn update(&mut self, new_points: Vec<PredictPoint>, displacement: Option<Vector3<f32>>) {
-        if let Some(params) = &displacement {
-            for traj in &mut self.buffer_trajectory {
-                // 利用IMU预测轨迹的新位置
-                traj.predict(&params);
-            }
+    /// 清理销毁死轨迹，并在合法轨迹中裁决最佳输出，附带明确失败原因
+    fn cleanup_and_estimate(&mut self, frame: &Frame) -> LocationResult {
+        // 彻底清理死掉的轨迹
+        self.trajectories.retain(|t| t.state != TrackState::Dead);
+
+        if self.trajectories.is_empty() {
+            return LocationResult::Uncertain(
+                "No active trajectories available in estimator".to_string(),
+            );
         }
 
-        // 合并近距离的冗余观测（解决“一处多点”的问题）
-        let merged_points = self.merge_points(new_points);
-
-        //计算所有轨迹与所有新点之间的综合距离
-        let mut all_candidates = merged_points
+        // 查找并统计处于不同状态下的轨迹
+        let tracking_trajectories: Vec<&Trajectory> = self
+            .trajectories
             .iter()
-            .enumerate()
-            .flat_map(|(p_idx, pt)| {
-                self.buffer_trajectory
-                    .iter()
-                    .enumerate()
-                    .map(move |(t_idx, traj)| (t_idx, p_idx, traj.distance(pt)))
-            })
-            .filter(|(_, _, dist)| *dist < self.match_threshold)
-            .collect::<Vec<_>>();
-
-        // 按综合距离从小到大排
-        all_candidates.sort_by(|a, b| a.2.total_cmp(&b.2));
-
-        // 记录本帧哪些点被用了，哪些轨迹更新了
-        let mut point_used = vec![false; merged_points.len()];
-        let mut traj_updated = vec![false; self.buffer_trajectory.len()];
-
-        // 贪婪匹配,为现有的轨迹分配最合适的点
-        for (t_idx, p_idx, _) in all_candidates {
-            if !point_used[p_idx] && !traj_updated[t_idx] {
-                // 把点塞进去
-                self.buffer_trajectory[t_idx].push(&merged_points[p_idx]);
-                point_used[p_idx] = true;
-                traj_updated[t_idx] = true;
-            }
-        }
-
-        // 自立门户：那些清晰且没人要的点开启新轨迹
-        let new_trajs = point_used
-            .iter()
-            .enumerate()
-            .filter(|&(p_idx, &used)| !used && merged_points[p_idx].inlier_count > 15)
-            .map(|(p_idx, _)| Trajectory::new(merged_points[p_idx].clone()))
-            .collect::<Vec<_>>();
-
-        // 将新轨迹加入缓冲池
-        self.buffer_trajectory.extend(new_trajs);
-
-        // 状态结算：统一调用每个轨迹的 update()
-        self.buffer_trajectory.iter_mut().for_each(|t| t.update());
-
-        // 踢掉死掉的轨迹
-        self.buffer_trajectory.retain(|t| t.health > 0.0);
-    }
-
-    /// 获得当前最可能的位置
-    pub fn estimate(&self) -> Option<PredictResult> {
-        // 提取所有可靠轨迹并按内点数排序
-        let mut reliable_trajs: Vec<_> = self
-            .buffer_trajectory
-            .iter()
-            .filter(|t| t.is_reliable())
+            .filter(|t| t.state == TrackState::Tracking)
             .collect();
 
-        // 按累积内点降序排列
-        reliable_trajs.sort_by(|a, b| b.accumulated_inliers.cmp(&a.accumulated_inliers));
-
-        if reliable_trajs.is_empty() {
-            return None;
+        if tracking_trajectories.is_empty() {
+            let init_count = self
+                .trajectories
+                .iter()
+                .filter(|t| t.state == TrackState::Initializing)
+                .count();
+            let lost_count = self
+                .trajectories
+                .iter()
+                .filter(|t| t.state == TrackState::Lost)
+                .count();
+            return LocationResult::Uncertain(format!(
+                "No trajectories in Tracking state (Initializing: {}, Lost: {})",
+                init_count, lost_count
+            ));
         }
 
-        // 如果只有一条可靠轨迹，直接输出
-        if reliable_trajs.len() == 1 {
-            return reliable_trajs[0].get_latest_pos();
+        // 筛选空间跨度（底气）达标的轨迹
+        let valid_trajectories: Vec<&&Trajectory> = tracking_trajectories
+            .iter()
+            .filter(|t| t.total_span >= self.config.min_span_required)
+            .collect();
+
+        if valid_trajectories.is_empty() {
+            let max_span = tracking_trajectories
+                .iter()
+                .map(|t| t.total_span)
+                .fold(0.0f64, f64::max);
+            return LocationResult::Uncertain(format!(
+                "Insufficient spatial span: max current span is {:.2}m, required {:.2}m",
+                max_span, self.config.min_span_required
+            ));
         }
 
-        // 存在多条可靠轨迹，进行“双强对比”
-        let best = reliable_trajs[0];
-        let second = reliable_trajs[1];
+        // 4. 从达标的轨迹中，按内点总数和跨度裁决出最优的一条
+        let best_traj = valid_trajectories.into_iter().max_by(|a, b| {
+            a.accumulated_inliers
+                .cmp(&b.accumulated_inliers)
+                .then_with(|| a.total_span.partial_cmp(&b.total_span).unwrap())
+        });
 
-        // 计算空间距离
-        let pos_best = best.get_latest_pos()?;
-        let pos_second = second.get_latest_pos()?;
-        let dist = ((pos_best.x - pos_second.x).powi(2)
-            + (pos_best.y - pos_second.y).powi(2)
-            + (pos_best.z - pos_second.z).powi(2))
-        .sqrt();
-
-        // 如果两者的位置离得很近（< 5.0m），认为没有歧义，输出最强的那个
-        if dist < 5.0 {
-            return Some(pos_best);
+        if let Some(traj) = best_traj {
+            if let Some((last_point, _)) = traj.points.last() {
+                let frame_location = FrameLocation {
+                    frame: frame.clone(),
+                    item: last_point.qdrant_result.clone(),
+                    center: last_point.center_location.clone(),
+                };
+                return LocationResult::Location(frame_location);
+            }
         }
 
-        // 如果第一名的内点数是第二名的 1.5 倍以上，认为“真理已明”，输出最强的
-        if best.accumulated_inliers as f32 > second.accumulated_inliers as f32 * 1.5 {
-            return Some(pos_best);
-        }
-
-        // 位置远且内点数旗鼓相当 -> 存在严重歧义，闭嘴
-        None
+        LocationResult::Uncertain(
+            "Failed to extract valid location point from best trajectory".to_string(),
+        )
     }
 }

@@ -198,8 +198,8 @@ class TiffProcessor:
                                         "lon": lon,
                                         "lat": lat,
                                     },
-                                    "pixel_x": x,
-                                    "pixel_y": y,
+                                    "x": x,
+                                    "y": y,
                                     "src": os.path.basename(tif_path),
                                     "res": [float(res_x), float(res_y)],
                                 },
@@ -386,8 +386,8 @@ class QdrantPerformanceTester:
                 for rank_idx, point in enumerate(points, start=1):
                     payload = point.payload or {}
                     match_src = payload.get("src")
-                    px = payload.get("pixel_x")
-                    py = payload.get("pixel_y")
+                    px = payload.get("col")
+                    py = payload.get("row")
 
                     # Check source file match and bounding pixel offset tolerance (within crop_size)
                     if (

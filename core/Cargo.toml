@@ -21,7 +21,8 @@ anyhow = "1.0.100"
 rknn-sys = { path = "crates/rknn-sys" }
 rknn3 = { path = "crates/rknn3" }
 client = { path = "crates/client" }
-
+camera = { path = "crates/camera" }
+imu = { path = "crates/imu" }
 
 [dependencies]
 imu = { path = "crates/imu" }
@@ -30,3 +31,7 @@ engine = { path = "crates/engine" }
 rknn3 = { path = "crates/rknn3" }
 rknn-sys = { path = "crates/rknn-sys" }
 client = { path = "crates/client" }
+opencv = { version = "0.100.1", features = ["clang-runtime"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
