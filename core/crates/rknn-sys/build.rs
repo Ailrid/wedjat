@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 fn main() {
     // Tell cargo where to locate dynamic libraries
-    println!("cargo:rustc-link-search=native=./lib");
+    println!("cargo:rustc-link-search=native=/lib");
 
     // Tell cargo to link against librknn3_api.so
     println!("cargo:rustc-link-lib=rknn3_api");

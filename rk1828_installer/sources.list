@@ -1,0 +1,9 @@
+# 阿里源 - Debian 12 (Bookworm) 全组件开启
+deb http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware
+deb-src http://mirrors.aliyun.com/debian/ bookworm main contrib non-free non-free-firmware
+
+deb http://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free non-free-firmware
+deb-src http://mirrors.aliyun.com/debian-security bookworm-security main contrib non-free non-free-firmware
+
+deb http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware
+deb-src http://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free non-free-firmware

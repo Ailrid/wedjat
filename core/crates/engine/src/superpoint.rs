@@ -285,7 +285,7 @@ mod tests {
         println!("Saved visual result to {}", output_path);
 
         // Benchmark FPS performance
-        let iterations = 100;
+        let iterations = 1000;
         let start_time = Instant::now();
 
         for _ in 0..iterations {
