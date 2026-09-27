@@ -9,3 +9,5 @@
 - [wedjat-core](https://github.com/Ailrid/wedjat/tree/master/core)：`Rust`编写的核心定位引擎、包含`RKNN`推理引擎、匹配定位和跟踪算法、imu积分、Qdrant数据库与tiff读取。
 - [wedjat-metric](https://github.com/Ailrid/wedjat/tree/master/metric)：度量学习网络部分的相关代码，包含模型训练、评估、保存、onnx导出的一站式集成子项目，使用[pyvirid](https://github.com/Ailrid/pyvirid/tree/master)驱动。
 - [wedjat-rknn](https://github.com/Ailrid/wedjat/tree/master/rknn)：ONNX到`RKNN`(RK1828)的导出、量化测评代码。
+
+- [rknn1828_installer](https://github.com/Ailrid/wedjat/tree/master/rk1828_installer)：一键安装rk1828驱动、transfer_proxy、lib运行库、apt源与开发工具包。
