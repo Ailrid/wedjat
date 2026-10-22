@@ -61,6 +61,9 @@ extern "C" {
 #define RKNN3_MAX_SPECIAL_BOS_ID_NUM 64            /* maximum number of special Begin-Of-Sequence (BOS) token. */
 #define RKNN3_MAX_SPECIAL_EOS_ID_NUM 64            /* maximum number of special End-Of-Sequence (EOS) token. */
 
+#define RKNN3_MAX_KVCACHE_LEN_GROUPS 16
+#define RKNN3_MAX_ATTENTION_TYPE_NUM 3
+
 /*
     Definition for device id
 */
@@ -112,6 +115,8 @@ typedef enum _rknn3_query_cmd
 
   RKNN3_QUERY_LORA_NUM = 21,  /** < query the number of LoRA adapters **/
   RKNN3_QUERY_LORA_INFO = 22, /** < query the LoRA information **/
+
+  RKNN3_QUERY_KVCACHE_LEN_GROUP_INFO = 23, /** < query the kvcache length group info (group count, per-group per-core kvcache sizes) **/
 
   RKNN3_QUERY_CMD_MAX
 } rknn3_query_cmd;
@@ -223,6 +228,26 @@ typedef enum _rknn3_mem_type
   RKNN3_MEMORY_TYPE_NPU_DRAM = 0 << 0, /** < NPU DRAM memory. */
   RKNN3_MEMORY_TYPE_EXT_DDR  = 1 << 0, /** < External DDR memory. */
 } rknn3_mem_type;
+
+/**
+ * @brief Attention type for LLM attention configs.
+ */
+typedef enum _rknn3_attention_type
+{
+  RKNN3_ATTENTION_TYPE_FULL_ATTENTION    = 0,
+  RKNN3_ATTENTION_TYPE_SLIDING_ATTENTION = 1,
+  RKNN3_ATTENTION_TYPE_LINEAR_ATTENTION  = 2,
+} rknn3_attention_type;
+
+/**
+ * @brief KV cache buffer length config for one attention type.
+ */
+typedef struct _rknn3_attention_kvcache_lens
+{
+  rknn3_attention_type attention_type;                                 /** < attention type */
+  uint32_t             n_kvcache_buffer_lens;                          /** < number of valid kvcache buffer lens */
+  int32_t              kvcache_buffer_lens[RKNN3_MAX_KVCACHE_LEN_GROUPS]; /** < kvcache buffer lens */
+} rknn3_attention_kvcache_lens;
 
 typedef enum _rknn3_kvcache_dtype
 {
@@ -359,6 +384,10 @@ typedef struct _rknn3_tensor_attr
   rknn3_tensor_layout   layout;   /** < the data layout of tensor. */
   rknn3_tensor_qnt_type qnt_type; /** < the quantization type of tensor. */
   rknn3_quant_info      qnt_info; /** < the quantization information of tensor. */
+
+  uint32_t n_orig_dims;                   /** < the number of original dimensions. */
+  uint32_t orig_shape[RKNN3_MAX_DIMS];    /** < the valid original dimensions array. */
+  rknn3_tensor_layout orig_layout;        /** < the layout of original tensors */
 
   int32_t core_id; /** < the core id of tensor buffer. */
 
@@ -506,6 +535,21 @@ typedef struct _rknn3_tensor
 typedef rknn3_tensor rknn3_aux_tensor;
 
 /**
+ * @brief Per-core kvcache length group information for RKNN3_QUERY_KVCACHE_LEN_GROUP_INFO.
+ *
+ * Usage: query RKNN3_QUERY_CORE_NUMBER to get core_number, then allocate
+ * rknn3_kvcache_len_group_info info[core_number] and query with
+ * sizeof(rknn3_kvcache_len_group_info) * core_number.
+ */
+typedef struct _rknn3_kvcache_len_group_info
+{
+  int32_t  core_id;         /** < the physical id of npu core */
+  uint32_t n_groups;        /** < number of kvcache length groups (0 = single-group legacy mode) */
+  int32_t  active_group_id; /** < currently active group_id (default 0) */
+  uint64_t kvcache_sizes[RKNN3_MAX_KVCACHE_LEN_GROUPS]; /** < kvcache_sizes[group_id] → kvcache size for that group on this core */
+} rknn3_kvcache_len_group_info;
+
+/**
  * @brief Structure containing memory allocation information for RKNN3 model.
  *
  * This structure provides detailed memory allocation information across different memory types
@@ -575,6 +619,8 @@ typedef struct _rknn3_llm_config
   char*                      model_type;              /** < model type */
   rknn3_llm_task_type        task_type;               /** < task type */
   uint8_t                    rope_cache_host_storage; /** < rope cache host storage */  
+  uint32_t                   n_attention_kvcache_lens; /** < number of valid attention kvcache lens configs */
+  rknn3_attention_kvcache_lens attention_kvcache_lens[RKNN3_MAX_ATTENTION_TYPE_NUM]; /** < kvcache lens configs for attention types */
   uint8_t                    reserved[127];           /** < reserved */
 } rknn3_llm_config;
 
@@ -755,13 +801,18 @@ typedef struct _rknn3_kvcache_policy_param
    */
   struct
   {
-    int64_t checkpoint_start_pos; /**< The position at which to begin saving checkpoints, e.g., position 0.
-                                        The value should be aligned to 128. If not aligned, it will be forcibly adjusted to an aligned value. */
-    int64_t checkpoint_interval;  /**< Token interval for saving checkpoints, e.g., save every 128 tokens.
-                                        The value should be aligned to 128. If not aligned, it will be forcibly adjusted to an aligned value. */
-    int64_t max_checkpoint_count; /**< Maximum number of checkpoints to save from checkpoint_start_pos.
-                                        The value should be less than (max_context_len - checkpoint_start_pos) / checkpoint_interval.
-                                        If not less, it will be forcibly adjusted to the maximum value. */
+    int64_t checkpoint_start_pos;      /**< The position at which to begin saving checkpoints, e.g., position 0.
+                                            The value should be aligned to 128. If not aligned, it will be forcibly adjusted to an aligned value. */
+    int64_t checkpoint_interval;       /**< Token interval for saving checkpoints, e.g., save every 128 tokens.
+                                            The value should be aligned to 128. If not aligned, it will be forcibly adjusted to an aligned value. */
+    int64_t max_checkpoint_count;      /**< Maximum number of checkpoints to save from checkpoint_start_pos.
+                                            The value should be less than (max_context_len - checkpoint_start_pos) / checkpoint_interval.
+                                            If not less, it will be forcibly adjusted to the maximum value. */
+    bool    checkpoint_tail_overwrite; /**< When set to true, the tail/last checkpoint slot is used as a overwrite slot.
+                                            (max_checkpoint_count - 1) checkpoints are saved at their corresponding, fixed positions.
+                                            Once the token position exceeds (checkpoint_start_pos + max_checkpoint_count * checkpoint_interval),
+                                            all subsequent checkpoints will overwrite the tail/last slot.
+                                            Example: max_checkpoint_count=5 means 4 fixed checkpoints + 1 rolling checkpoint tail. */ 
   } save_checkpoint;
 
   uint8_t reserved[64]; /**< reserved */
@@ -864,9 +915,15 @@ typedef struct
  */
 typedef struct
 {
-  int     keep_history;   /**< Flag to determine history retention (1: keep history, 0: discard history).*/
-  int32_t max_new_tokens; /**< Maximum number of new tokens to generate. */
-  uint8_t reserved[128];  /**< Reserved bytes for future use. */
+  int     keep_history;       /**< Flag to determine history retention (1: keep history, 0: discard history).*/
+  int32_t max_new_tokens;     /**< Maximum number of new tokens to generate. */
+  bool    prefill_only;       /**< Flag to prefill only. It means the model will only do prefill, and skip decode stage.
+                                   But still will do sampling for prefill output tokens. Default is false.  */
+  bool    disable_sampling;   /**< Flag to disable sampling. It means the model will not do sampling. Default is false.
+                                   Suitable for prefill-only scenario and do not want to get prefill output tokens.
+                                   Usually, when prefill_only is set to true, disable_sampling is also set to true (Setting disable_sampling alone has no effect).
+                                   Such as for embedding and reranker models only want get embeddings without sampling. */
+  uint8_t reserved[128];      /**< Reserved bytes for future use. */
 } rknn3_llm_infer_param;
 
 /**
@@ -1001,9 +1058,14 @@ typedef struct
 typedef struct
 {
   uint64_t             n_total_tokens;   /**< Total number of tokens processed currently. */
+  uint64_t             n_reuse_tokens;   /**< Total number of tokens reused from KV cache (for the current input). */
   uint64_t             n_max_tokens;     /**< Maximum number of tokens can be processed. */
-  uint64_t             n_decode_tokens;  /**< Number of tokens generated during the decode stage. */
   uint64_t             n_prefill_tokens; /**< Number of tokens processed during the prefill stage. */
+  uint64_t             n_decode_tokens;  /**< Number of tokens generated during the decode stage. */
+  uint64_t             n_input_tokens;   /**< Number of tokens input to the model (same as n_prefill_tokens). */
+  uint64_t             n_output_tokens;  /**< Number of tokens output from the model (n_output_tokens = n_decode_tokens + 1 (1 is the prefill output token)). */
+  const int32_t*       input_tokens;     /**< Pointer to the array of tokens input to the model. Should not be freed by the user. */
+  const int32_t*       output_tokens;    /**< Pointer to the array of tokens output from the model. Should not be freed by the user. */
   rknn3_kvcache_policy kvcache_policy;   /**< KV cache policy. */
   int32_t              n_loras_enabled;  /**< Number of Lora enabled. */
   rknn3_lora*          loras_enabled;    /**< Lora enabled. */
@@ -1255,15 +1317,6 @@ int rknn3_load_weight_chunk(rknn3_context context, uint64_t weight_offset,
                                const void* data, uint64_t size);
 
 /**
- * @brief Duplicate an existing RKNN3 context
- *
- * @param context_in The source RKNN3 context to duplicate from
- * @param context_out Pointer to receive the duplicated RKNN3 context
- * @return int Return 0 if successful, otherwise return error code
- */
-int rknn3_dup_context(rknn3_context context_in, rknn3_context* context_out);
-
-/**
  * @brief Destroy an RKNN3 runtime context and release resources.
  *
  * @param context The RKNN3 context handle to be destroyed.
@@ -1302,46 +1355,6 @@ int rknn3_query(rknn3_context context, rknn3_query_cmd cmd, void* info, uint64_t
  * Both input and output tensors must be properly allocated and configured before calling this function.
  */
 int rknn3_run(rknn3_context context, const rknn3_tensor inputs[], uint32_t n_inputs, rknn3_tensor outputs[], uint32_t n_outputs);
-
-/**
- * @brief Asynchronous execution of the RKNN3 model inference.
- *
- * @param context The RKNN3 context handle obtained from rknn3_init
- * @param inputs Array of input tensors containing the input data
- * @param n_inputs Number of input tensors
- * @param outputs Array of output tensors to store the inference results
- * @param n_outputs Number of output tensors
- * @return int Return 0 if successful, otherwise return error code
- *
- * This function performs asynchronous inference using the specified RKNN3 model.
- * It takes the input data through the inputs array and writes the results to the outputs array.
- * Both input and output tensors must be properly allocated and configured before calling this function.
- */
-int rknn3_run_async(rknn3_context context, const rknn3_tensor inputs[], uint32_t n_inputs, rknn3_tensor outputs[], uint32_t n_outputs);
-
-/**
- * @brief Wait for the completion of inference/execution.
- *
- * This function blocks until the inference or execution on the RKNN3 device is complete.
- *
- * @param context The context handle for the RKNN3 model instance.
- * @return int Return 0 for success, negative value for failure.
- */
-int rknn3_wait(rknn3_context context);
-
-/**
- * @brief Creates a tensor memory handle from physical address
- *
- * @param context The RKNN3 context handle
- * @param phys_addr The physical address of the memory
- * @param virt_addr The virtual address of the memory
- * @param size The size of the memory in bytes
- * @return rknn3_tensor_mem* A pointer to the created tensor memory handle, or NULL if creation failed
- *
- * This function creates a tensor memory handle from provided physical and virtual addresses.
- * The memory must be pre-allocated and the physical/virtual addresses must be valid.
- */
-rknn3_tensor_mem* rknn3_create_mem_from_phys(rknn3_context context, uint64_t phys_addr, void* virt_addr, uint64_t size);
 
 /**
  * @brief Creates a tensor memory object from a file descriptor.
@@ -1396,6 +1409,18 @@ int rknn3_destroy_mem(rknn3_context context, rknn3_tensor_mem* mem);
 int rknn3_mem_sync(rknn3_context context, rknn3_tensor_mem* mem, rknn3_mem_sync_mode mode);
 
 /**
+ * @brief Synchronize a range of memory data between CPU and device.
+ *
+ * @param context The context of the RKNN3 model
+ * @param mem The memory handle of the tensor
+ * @param mode The synchronization mode (RKNN3_MEMORY_SYNC_TO_DEVICE / RKNN3_MEMORY_SYNC_FROM_DEVICE)
+ * @param offset Byte offset within mem->virt_addr to start syncing from
+ * @param length Number of bytes to sync (offset+length must not exceed mem->size)
+ * @return int: 0 on success, negative on error
+ */
+int rknn3_mem_sync_range(rknn3_context context, rknn3_tensor_mem* mem, rknn3_mem_sync_mode mode, uint64_t offset, uint64_t length);
+
+/**
  * @brief Set the model shape for dynamic input.
  *
  * @param context The context handle of the RKNN3 model.
@@ -1419,6 +1444,28 @@ int rknn3_set_shape(rknn3_context context, int32_t shape_id);
  * @return 0 on success, negative value on error
  */
 int rknn3_set_kvcache_mem(rknn3_context context, rknn3_tensor_mem* mem[], int* npu_core_indices, int n_core);
+
+/**
+ * @brief Set active KV cache group for current context.
+ *
+ * This API selects a supported KV cache group according to the requested
+ * token length and attention type configuration. It updates internal KV cache
+ * buffer addresses and switches the execution id of the current context.
+ *
+ * @param context The RKNN3 context handle
+ * @param group_id The group ID to activate (must be in [0, n_groups))
+ * @return 0 on success, negative value on error
+ */
+int rknn3_set_kvcache_group(rknn3_context context, int32_t group_id);
+
+/**
+ * @brief Set multiple core's user-allocated weight memory. Note: Current version only supports RK3572.
+ * @param context RKNN3 context
+ * @param mem User-allocated memory object array, each mem's core_id field specifies the target core
+ * @param n_core Number of cores
+ * @return Return RKNN3_SUCCESS on success, return error code on failure
+ */
+int rknn3_set_weight_mem(rknn3_context context, rknn3_tensor_mem* mem[], uint32_t n_core);
 
 /**
  * @brief Set multiple core's user-allocated internal memory
@@ -1840,13 +1887,44 @@ typedef enum _rknn3_op_plugin_type
 } rknn3_op_plugin_type;
 
 /**
+ * @brief Custom operator attribute descriptor.
+ *
+ * Holds the name, data type, element count, and data pointer
+ * for a single operator attribute queried via get_param.
+ *
+ * @note The data pointer is NOT owned by the caller — it points into
+ *       the framework's internal FlatBuffers buffer and is only valid
+ *       within the scope of the current init/compute callback invocation.
+ *       Do NOT cache or free it.
+ */
+typedef struct _rknn3_custom_op_attr
+{
+    char             name[RKNN3_MAX_NAME_LEN]; /* the name of operator attributes. */
+    rknn3_tensor_type dtype;                   /* the data type of operator attributes */
+    uint32_t         n_elems;                  /* the number of 'array'. */
+    void*            data;                     /* the array pointer of operator attributes (non-owning, callback-scoped).
+                                                  The data type of each element is determined by dtype. */
+} rknn3_custom_op_attr;
+
+/**
  * @brief Custom operator context structure
+ *
+ * @note All fields except user_data are managed by the framework.
+ *       User code MUST NOT modify rknn_ctx, priv_data, or get_param.
  */
 typedef struct _rknn3_custom_op_context
 {
     rknn3_context rknn_ctx;   /* RKNN3 context handle, managed by framework */
     void *priv_data;          /* Private data managed by framework */
     void *user_data;          /* User data managed by user */
+
+    /* Function pointer: query op param by attr_name.
+     * SET BY FRAMEWORK before calling init/compute — DO NOT OVERWRITE.
+     * Custom op code calls op_ctx->get_param(op_ctx, attr_name, &op_attr).
+     * The returned op_attr.data is non-owning and valid only within the
+     * current callback invocation. */
+    int (*get_param)(struct _rknn3_custom_op_context* op_ctx,
+                     const char* attr_name, rknn3_custom_op_attr* op_attr);
 } rknn3_custom_op_context;
 
 /**
