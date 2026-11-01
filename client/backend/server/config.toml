@@ -1,0 +1,21 @@
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[database]
+url = "postgres://ailrid:qazwsxedc.00@localhost:5432/wedjat"
+max_connections = 10
+
+[conversion]
+max_concurrent_jobs = 2
+
+[data]
+# 存放原始 TIFF / OSGB 等文件的根目录
+# 用来校验用户提交的 source_file 是否在允许的路径内
+source_root = "~/data/sources"
+# 转换产物（.mbtiles, tileset.json 等）的存放根目录
+output_root = "~/data/tiles"
+
+[logging]
+level = "info"
+format = "compact"

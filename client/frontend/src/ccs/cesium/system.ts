@@ -39,6 +39,7 @@ export class CesiumSystem {
       // skyAtmosphere: true, // 关闭大气
       scene3DOnly: true, //如果设置为true，则所有几何图形以3D模式绘制以节约GPU资源
       skyBox: false,
+      baseLayer: false,
     });
     viewer.scene.backgroundColor = new Cesium.Color(0.0, 0.0, 0.0, 0.0); //设置背景色透明
     viewer.scene.canvas.style.backgroundImage = `url(${bg})`; //设置背景图片
@@ -76,7 +77,7 @@ export class CesiumSystem {
     LoadImageryMessage.send({
       type: "imagery",
       name: "天地图底图",
-      url: "https://{s}.tianditu.gov.cn/img_w/wmts?tk=16ea42d08457b4de2ea8228e1a65fe63",
+      url: "http://t0.tianditu.gov.cn/img_w/wmts?tk=16ea42d08457b4de2ea8228e1a65fe63",
       show: true,
       alpha: 1,
     });
@@ -84,6 +85,13 @@ export class CesiumSystem {
       type: "imagery",
       name: "天地图注记",
       url: "http://t0.tianditu.gov.cn/cia_w/wmts?tk=16ea42d08457b4de2ea8228e1a65fe63",
+      show: true,
+      alpha: 1,
+    });
+    LoadImageryMessage.send({
+      type: "imagery",
+      name: "德国测试",
+      url: "http://localhost:3000/germany/{z}/{x}/{y}",
       show: true,
       alpha: 1,
     });
@@ -185,6 +193,8 @@ export class ResourceSystem {
     layer.show = resource.show;
     resourceComponent.resourcesData.set(resource.name, layer);
     resourceComponent.resources.unshift(resource);
+
+
     MessageWriter.info(`Loaded Imagery ${resource.name} successfully.`);
   }
 

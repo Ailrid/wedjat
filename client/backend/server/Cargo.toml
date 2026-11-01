@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = { version = "0.8.9", features = ["ws", "json"] }
+tokio = { version = "1.54.1", features = ["full"] }
+tower-http = { version = "0.7.1", features = ["trace", "cors", "fs"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sqlx = {version = "0.9.0",features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
+thiserror = "2.0.21"
+config ={version =  "0.15.27",features = ["toml"]}
+chrono = { version = "0.4.45", features = ["serde"] }
