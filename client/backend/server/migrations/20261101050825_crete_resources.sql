@@ -15,8 +15,9 @@ CREATE TABLE resources (
     max_lat       DOUBLE PRECISION,
     min_zoom      INTEGER,
     max_zoom      INTEGER,
+    epsg          INTEGER NOT NULL,
 
-    group_name         TEXT,
+    group_name    TEXT,
     extra         JSONB NOT NULL DEFAULT '{}',
 
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),

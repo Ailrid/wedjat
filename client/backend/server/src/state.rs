@@ -1,4 +1,4 @@
-use crate::{config::Config, error::AppError};
+use crate::{config::Config, error::AppError, pipeline::converter::Converter};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub pool: PgPool,
     pub config: Arc<Config>,
+    pub converter: Converter,
 }
 
 impl AppState {
@@ -14,6 +15,11 @@ impl AppState {
             .max_connections(config.database.max_connections)
             .connect(&config.database.url)
             .await?;
-        Ok(Self { pool, config })
+        let converter = Converter::new(config.clone(), pool.clone());
+        Ok(Self {
+            pool,
+            config,
+            converter,
+        })
     }
 }

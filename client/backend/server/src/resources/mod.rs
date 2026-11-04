@@ -1,5 +1,6 @@
 mod handler;
 mod model;
 mod repo;
-pub mod routes;
-mod service;
+mod routes;
+pub mod error;
+pub use routes::*;

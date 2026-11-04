@@ -14,7 +14,8 @@ pub struct DatabaseConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ConversionConfig {
-    pub max_concurrent_jobs: u32,
+    pub max_converters: usize,
+    pub queue_capacity: usize,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -26,7 +27,8 @@ pub struct DataConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct LoggingConfig {
     pub level: String,
-    pub format: String,
+    pub directory: String,
+
 }
 
 #[derive(Debug, Deserialize, Clone)]

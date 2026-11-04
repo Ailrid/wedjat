@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = { version = "0.8.9", features = ["ws", "json"] }
+axum = { version = "0.8.9", features = ["ws", "json","macros"] }
 tokio = { version = "1.54.1", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["trace", "cors", "fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -13,3 +13,10 @@ sqlx = {version = "0.9.0",features = ["runtime-tokio", "postgres", "uuid", "chro
 thiserror = "2.0.21"
 config ={version =  "0.15.27",features = ["toml"]}
 chrono = { version = "0.4.45", features = ["serde"] }
+
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = {version = "0.3.23",features = ["env-filter"]}
+uuid = {version ="1.29.0",features = [
+    "v4",
+]}

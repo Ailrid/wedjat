@@ -1,9 +1,11 @@
-use axum::Router;
-
+use super::handler as h;
 use crate::state::AppState;
+use axum::{Router, routing::post};
 
 pub fn resources_router() -> Router<AppState> {
-    let router = Router::new();
-
-    Router::new().nest("/api/resources", router)
+    Router::new()
+        .route("/resources/create", post(h::create))
+        .route("/resources/get", post(h::get))
+        .route("/resources/group", post(h::get_group))
+        .route("/resources/list", post(h::list))
 }
