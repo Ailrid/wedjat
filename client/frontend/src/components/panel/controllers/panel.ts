@@ -1,14 +1,10 @@
 import { Controller } from "@virid/core";
-import { OnHook, Use } from "@virid/vue";
-import {
-  InitCesiumMessage,
-  ResizeCesiumMessage,
-  FlyToMessage,
-} from "@/ccs/cesium";
-import { useTemplateRef, type ShallowRef } from "vue";
-import * as Cesium from "cesium";
+import { Responsive } from "@virid/vue";
+
+export type PanelTab = "locate" | "vision" | "inertial" | "setting";
 
 @Controller()
 export class PanelController {
-
+  @Responsive()
+  public tab: PanelTab = "locate";
 }

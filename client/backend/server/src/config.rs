@@ -20,7 +20,6 @@ pub struct ConversionConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DataConfig {
-    pub source_root: String,
     pub output_root: String,
 }
 

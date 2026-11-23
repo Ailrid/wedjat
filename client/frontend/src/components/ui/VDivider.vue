@@ -1,28 +1,29 @@
 <template>
-  <div ref="rootRef" class="flex h-full w-full overflow-hidden">
+  <div ref="rootRef" class="flex h-full w-full">
     <div
-      class="min-w-0 shrink-0 overflow-hidden"
-      :style="{ width: leftWidth + 'px' }"
+      class="h-full overflow-auto"
+      :style="{ width: leftWidth + 'px', flexShrink: 0 }"
     >
       <slot name="left" />
     </div>
 
     <div
-      class="shrink-0 cursor-col-resize touch-none hover:bg-primary"
-      :style="{ width: dividerSize + 'px' }"
+      class="cursor-col-resize touch-none hover:bg-primary"
+      :style="{ width: dividerSize + 'px', flexShrink: 0 }"
       @pointerdown="onDown"
       @pointermove="onMove"
       @pointerup="onUp"
+      @pointercancel="onUp"
     />
 
-    <div class="min-w-0 flex-1 overflow-hidden">
+    <div class="flex-1">
       <slot name="right" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { ref, onMounted } from "vue";
+  import { ref, onMounted, onBeforeUnmount } from "vue";
 
   const props = withDefaults(
     defineProps<{
@@ -41,6 +42,24 @@
   let startLeft = 0;
   let dragging = false;
 
+  // 当前占比，用于窗口尺寸变化时按比例重算
+  let currentRatio = clamp(props.initialRatio);
+
+  function clamp(v: number) {
+    return Math.min(Math.max(v, 0), 1);
+  }
+
+  /** 可分配给左/右区域的总宽度（扣掉分割线） */
+  function getAvailable() {
+    const total = rootRef.value?.clientWidth ?? 0;
+    return Math.max(0, total - props.dividerSize);
+  }
+
+  function applyRatio(ratio: number) {
+    currentRatio = clamp(ratio);
+    leftWidth.value = getAvailable() * currentRatio;
+  }
+
   function onDown(e: PointerEvent) {
     dragging = true;
     startX = e.clientX;
@@ -50,22 +69,37 @@
 
   function onMove(e: PointerEvent) {
     if (!dragging) return;
-    const total = rootRef.value?.clientWidth ?? 0;
-    const max = Math.max(0, total - props.dividerSize);
-    leftWidth.value = Math.min(
-      Math.max(startLeft + e.clientX - startX, 0),
-      max,
-    );
+    const max = getAvailable();
+    const next = Math.min(Math.max(startLeft + e.clientX - startX, 0), max);
+    leftWidth.value = next;
+    currentRatio = max > 0 ? next / max : 0;
   }
 
   function onUp(e: PointerEvent) {
+    if (!dragging) return;
     dragging = false;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    const el = e.currentTarget as HTMLElement;
+    if (el.hasPointerCapture?.(e.pointerId)) {
+      el.releasePointerCapture(e.pointerId);
+    }
   }
 
+  let ro: ResizeObserver | null = null;
+
   onMounted(() => {
-    const total = rootRef.value?.clientWidth ?? 0;
-    const ratio = Math.min(Math.max(props.initialRatio, 0), 1);
-    leftWidth.value = Math.max(0, total - props.dividerSize) * ratio;
+    // 先按初始比例算一次（即使容器宽度暂为 0，RO 首帧也会纠正）
+    applyRatio(props.initialRatio);
+
+    ro = new ResizeObserver(() => {
+      // 拖拽中不要打断用户操作
+      if (dragging) return;
+      leftWidth.value = getAvailable() * currentRatio;
+    });
+    if (rootRef.value) ro.observe(rootRef.value);
+  });
+
+  onBeforeUnmount(() => {
+    ro?.disconnect();
+    ro = null;
   });
 </script>

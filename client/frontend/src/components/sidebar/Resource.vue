@@ -1,18 +1,7 @@
 <template>
-  <div
-    ref="containerRef"
-    class="w-full h-full overflow-auto"
-    @dragover.prevent="rec.onDragOver($event)"
-    @dragend="rec.onDragEnd($event)"
-  >
+  <div ref="containerRef" class="w-full h-full  overflow-auto">
     <ul class="p-2">
-      <li
-        v-for="(item, index) in rec.resources"
-        :key="item.name"
-        draggable="true"
-        @dragstart="rec.onDragStart(index, $event)"
-        class="mb-1"
-      >
+      <li v-for="(item, index) in rec.resources" :key="item.id" class="mb-1">
         <Imagery v-if="item.type === 'imagery'" :resource="item" />
         <Terrain v-else-if="item.type === 'terrain'" :resource="item" />
         <Vector v-else-if="item.type === 'vector'" :resource="item" />

@@ -14,7 +14,7 @@
         <div
           v-if="show"
           :style="{ height, width }"
-          class="bg-card relative z-10 overflow-hidden rounded-2xl shadow-2xl backdrop-blur-md"
+          class="bg-card relative z-1000 overflow-hidden rounded-2xl shadow-2xl backdrop-blur-md"
         >
           <slot name="context" :close="close"></slot>
         </div>

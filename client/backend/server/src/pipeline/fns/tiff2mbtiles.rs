@@ -13,7 +13,7 @@ async fn run_gdal(input: &str, output: &str, epsg: i32) -> Result<(), ConverterE
     // 中间文件：重投影后的 3857 GeoTIFF
     let warped: PathBuf = PathBuf::from(format!("{}.warped.tif", output));
 
-    // 1. 显式重投影：s_srs = 用户声明的源坐标系，t_srs = Web 墨卡托
+    // 1. 显式重投影：s_srs = 调用方声明的源坐标系，t_srs = Web 墨卡托
     let warp = Command::new("gdalwarp")
         .args([
             "-s_srs",
@@ -46,8 +46,6 @@ async fn run_gdal(input: &str, output: &str, epsg: i32) -> Result<(), ConverterE
             "MBTiles",
             "-co",
             "TILE_FORMAT=PNG",
-            "-co",
-            "ZOOM_LEVEL=18",
         ])
         .output()
         .await?;
@@ -62,11 +60,13 @@ async fn run_gdal(input: &str, output: &str, epsg: i32) -> Result<(), ConverterE
         });
     }
 
+    // 3. gdaladdo：生成金字塔层级
+    //    2/4/8/16/32/64 是相对基础层级的降采样因子。
+    //    例如基础层是 Z18，则依次生成 Z17、Z16、Z15、Z14、Z13、Z12。
     let addo = Command::new("gdaladdo")
-        .arg("-r")
-        .arg("average")
-        .arg(output)
-        .args(["2", "4", "8", "16", "32", "64"])
+        .args([
+            "-r", "average", output, "2", "4", "8", "16", "32", "64", "128", "256",
+        ])
         .output()
         .await?;
 

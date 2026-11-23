@@ -1,5 +1,5 @@
 <template>
-  <div class="window dark relative">
+  <div class="window dark relative text-sm">
     <Layout></Layout>
     <div id="dialog"></div>
     <Viewer></Viewer>
@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
   import Layout from "./layouts/Layout.vue";
-  import Viewer from "./components/cesium/Viewer.vue";
+  import Viewer from "./components/cesium/Cesium.vue";
 </script>
 
 <style lang="css">
@@ -16,6 +16,8 @@
   .window {
     @apply bg-card flex h-screen w-screen flex-col overflow-hidden;
     color: var(--foreground);
+    width: 100vw;
+    height: 100vh;
   }
   html,
   body {

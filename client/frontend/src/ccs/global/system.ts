@@ -1,18 +1,16 @@
 import {
   System,
-  type ViridApp,
   InfoMessage,
   WarnMessage,
   ErrorMessage,
+  ViridApp,
 } from "@virid/core";
 import { GlobalComponent } from "./component";
-
-export class GlobalSystem {}
 
 export class LogSystem {
   @System()
   static info(message: InfoMessage, globalComponent: GlobalComponent) {
-    globalComponent.tips.push(`[INFO] ${message.context}`);
+    globalComponent.tips.push(`[INFO] ${message.context} `);
   }
   @System()
   static warn(message: WarnMessage, globalComponent: GlobalComponent) {
@@ -20,12 +18,12 @@ export class LogSystem {
   }
   @System()
   static error(message: ErrorMessage, globalComponent: GlobalComponent) {
-    globalComponent.tips.push(`[ERROR] ${message.context}`);
+    globalComponent.tips.push(`[ERROR] ${message.context} ${message.error}`);
   }
 }
 
 export function registerGlobalSystems(app: ViridApp) {
-  app.register(LogSystem.info);
-  app.register(LogSystem.warn);
   app.register(LogSystem.error);
+  app.register(LogSystem.warn);
+  app.register(LogSystem.info);
 }

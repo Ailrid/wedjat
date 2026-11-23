@@ -3,7 +3,7 @@
     <div class="w-full h-9 nav-bar">
       <Navbar></Navbar>
     </div>
-    <div class="flex-1 flex">
+    <div class="flex-1 flex min-h-0">
       <VDivider :initialRatio="0.2">
         <template #left>
           <div class="w-full h-full side-bar">
@@ -47,7 +47,7 @@
   }
 
   .nav-bar {
-    @apply bg-navbar z-50 overflow-hidden border-b border-black/5
+    @apply shrink-0 bg-navbar z-50 overflow-hidden border-b border-black/5
            shadow-[0_4px_14px_-4px_rgba(0,0,0,0.08)]
            dark:border-black dark:shadow-none;
   }
@@ -59,6 +59,6 @@
   }
 
   .state-bar {
-    @apply bg-white/35 z-50 border-t border-black/5 dark:border-black;
+    @apply shrink-0 bg-white/35 z-50 border-t border-black/5 dark:border-black;
   }
 </style>

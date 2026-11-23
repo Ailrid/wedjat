@@ -14,7 +14,7 @@
     <template #context="{ close }">
       <div class="w-lg h-128 flex flex-col">
         <div
-          class="shrink-0 flex items-center justify-between gap-2 h-9 px-3 border-b border-white/10"
+          class="flex items-center justify-between gap-2 h-9 px-3 border-b border-white/10"
         >
           <span class="text-xs font-medium tracking-wide opacity-60">
             历史记录

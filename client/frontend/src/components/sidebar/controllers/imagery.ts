@@ -4,8 +4,11 @@ import {
   type Resource,
   ShowResourceMessage,
   OperateResourceMessage,
-} from "@/ccs/cesium";
+  RemoveResourceMessage,
+  LoadImageryMessage,
+} from "@/ccs/resource";
 import type { ImageryLayer } from "cesium";
+import { SaveSettingsMessage } from "@/ccs/settings";
 
 @Controller()
 export class ImageryController {
@@ -13,10 +16,19 @@ export class ImageryController {
   public resource!: Resource;
 
   @Responsive()
+  public alpha: number = 1;
+
+  @Responsive()
   public resourceCloned!: Resource;
 
   @Responsive()
-  public alpha: number = 1;
+  public subdomains!: string;
+
+  @Responsive()
+  public tilingScheme!: "WebMercator" | "Geographic";
+
+  @Responsive()
+  public isShowing: boolean = false;
 
   @OnHook("onSetup")
   public onSetup() {
@@ -26,20 +38,42 @@ export class ImageryController {
 
   @Watch<ImageryController>((i) => i.alpha)
   public handleAlphaChange() {
-    this.resourceCloned.alpha = this.alpha;
     OperateResourceMessage.send((resources, data) => {
-      const layer = data.get(this.resource.name);
+      const layer = data.get(this.resource.id);
 
       if (layer) {
-        resources.find((r) => r.name === this.resource.name)!.alpha =
-          this.alpha;
+        resources.find((r) => r.id === this.resource.id)!.alpha = this.alpha;
         (layer as ImageryLayer).alpha = this.alpha;
       }
     });
   }
 
   public handleShowToggle() {
-    this.resourceCloned.show = !this.resource.show;
-    ShowResourceMessage.send(this.resource.name, !this.resource.show);
+    ShowResourceMessage.send(this.resource.id, !this.resource.show);
   }
+  public saveChange() {
+    RemoveResourceMessage.send(this.resourceCloned.id);
+    const resourceCloned = JSON.parse(JSON.stringify(this.resourceCloned));
+    LoadImageryMessage.send(resourceCloned);
+    SaveSettingsMessage.send((settings) => {
+      const idx = settings.resources.findIndex(
+        (r) => r.id === resourceCloned.id,
+      );
+      if (idx >= 0) {
+        settings.resources[idx] = resourceCloned;
+      }
+    });
+  }
+  public removeResource() {
+    RemoveResourceMessage.send(this.resourceCloned.id);
+    SaveSettingsMessage.send((settings) => {
+      const idx = settings.resources.findIndex(
+        (r) => r.id === this.resourceCloned.id,
+      );
+      if (idx >= 0) {
+        settings.resources.splice(idx, 1);
+      }
+    });
+  }
+
 }

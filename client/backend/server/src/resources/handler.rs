@@ -3,9 +3,10 @@ use super::model::{
 };
 use super::repo;
 use crate::error::AppError;
+use crate::extract::Json;
 use crate::pipeline::converter::{ConvertType, Task};
 use crate::state::AppState;
-use axum::{Json, extract::State};
+use axum::extract::State;
 use std::path::Path;
 
 /// 根据扩展名 + gdalinfo 内容特征推断 category 和 ConvertType

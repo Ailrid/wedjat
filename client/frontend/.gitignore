@@ -2,3 +2,4 @@ node_modules
 !assets
 pnpm-lock.yaml
 !*.png
+public

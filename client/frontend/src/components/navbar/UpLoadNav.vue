@@ -1,6 +1,6 @@
 <template>
   <div>
-    <Button>导入(I)</Button>
+    <Button>上传(U)</Button>
   </div>
 </template>
 

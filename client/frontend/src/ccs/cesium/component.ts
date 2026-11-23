@@ -1,12 +1,6 @@
 import { Component, type ViridApp, Safe } from "@virid/core";
 import { Responsive } from "@virid/vue";
-import {
-  type Viewer,
-  type ScreenSpaceEventHandler,
-  ImageryLayer,
-  DataSource,
-  Cesium3DTileset,
-} from "cesium";
+import { type Viewer, type ScreenSpaceEventHandler } from "cesium";
 export interface CameraPosition {
   lat: number;
   lon: number;
@@ -14,20 +8,6 @@ export interface CameraPosition {
   pitch: number;
   heading: number;
   roll: number;
-}
-
-export type ResourceType =
-  | "imagery" // DOM、专题底图（XYZ / WMS / WMTS）
-  | "terrain" // DEM 切片后的 Cesium Terrain
-  | "tiles" // 城市三维模型 / 激光雷达点云（入口 tileset.json）
-  | "vector"; // GeoJSON / KML / CZML（未切片矢量）
-
-export interface Resource {
-  type: ResourceType;
-  name: string;
-  url: string;
-  show: boolean;
-  alpha: number;
 }
 
 @Component()
@@ -51,17 +31,6 @@ export class CesiumComponent {
   }
 }
 
-@Component()
-export class ResourceComponent {
-  @Responsive()
-  public resources: Resource[] = [];
-  public resourcesData: Map<
-    string,
-    ImageryLayer | Cesium3DTileset | DataSource
-  > = new Map();
-}
-
 export function bindCesiumComponent(app: ViridApp) {
   app.bind(CesiumComponent);
-  app.bind(ResourceComponent);
 }

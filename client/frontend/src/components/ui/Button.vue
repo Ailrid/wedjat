@@ -19,7 +19,7 @@
 
   const variantMap = {
     icon: "rounded-sm",
-    outline: "rounded-sm hover:bg-white/10 hover:text-white p-2",
+    outline: "rounded-sm hover:bg-white/10 hover:text-white p-1",
     none: "",
   };
 </script>

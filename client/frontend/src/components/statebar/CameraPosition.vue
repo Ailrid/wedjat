@@ -3,7 +3,7 @@
     <button class="button" @click="cpt.resetCamera">
       <CircleArrowUp
         :size="16"
-        class="shrink-0"
+        class=""
         :style="{ rotate: `${cpt.cameraPosition.heading}deg` }"
       />
       <span>复位</span>

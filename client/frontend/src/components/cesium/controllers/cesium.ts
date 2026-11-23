@@ -7,6 +7,8 @@ import {
 } from "@/ccs/cesium";
 import * as Cesium from "cesium";
 import { ContainerResizeMessage } from "./container";
+import { LoadSettingsMessage } from "@/ccs/settings";
+import { LoadSavedResourcesMessage } from "@/ccs/resource";
 
 @Controller()
 export class CesiumController {
@@ -26,10 +28,12 @@ export class CesiumController {
   // 挂载容器
   @OnHook("onMounted")
   mounted() {
+    // 初始化
     InitCesiumMessage.send();
+    LoadSettingsMessage.send();
+    LoadSavedResourcesMessage.send();
     FlyToMessage.send({
-      // destination: Cesium.Cartesian3.fromDegrees(113.0, 33.0, 20000000),
-      destination: Cesium.Cartesian3.fromDegrees(9.22, 49.15, 1000),
+      destination: Cesium.Cartesian3.fromDegrees(113.0, 33.0, 20000000),
       orientation: {
         heading: Cesium.Math.toRadians(0.001), // 正北方向
         pitch: Cesium.Math.toRadians(-90.0), // 垂直向下看
