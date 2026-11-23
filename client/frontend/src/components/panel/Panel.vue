@@ -39,11 +39,11 @@
   import { useController } from "@virid/vue";
   import type { Component } from "vue";
   import { PanelController, type PanelTab } from "./controllers";
-  import Locate from "./Locate.vue";
-  import Vision from "./Vision.vue";
-  import Inertial from "./Inertial.vue";
-  import Setting from "./Setting.vue";
-  import Button from "../ui/Button.vue";
+  import Locate from "@/components/drone/Locate.vue";
+  import Vision from "@/components/drone/Vision.vue";
+  import Inertial from "@/components/drone/IMU.vue";
+  import Setting from "@/components/drone/Setting.vue";
+  import Button from "@/components/ui/Button.vue";
 
   const panel = useController(PanelController);
 

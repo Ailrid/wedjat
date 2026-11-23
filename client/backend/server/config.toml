@@ -7,8 +7,36 @@ url = "postgres://ailrid:qazwsxedc.00@localhost:5432/wedjat"
 max_connections = 10
 
 [conversion]
-max_converters = 2
+max_converters = 4
 queue_capacity = 64
+
+[conversion.mbtiles]
+threads = 0
+timeout_secs = 3600
+min_zoom = 12
+
+[conversion.terrain]
+java_bin = "java"
+jar_path = "/home/shiraha_yuki/文档/project/wedjat/client/backend/server/utils/terrain/mago-3d-terrainer-1.14.2.jar"
+max_heap = "2g"
+max_depth = 17
+nodata_value = -32767.0
+geoid = "Ellipsoid"
+raster_max_size = 2048
+attribution = ""
+timeout_secs = 1800
+
+[conversion.pointcloud]
+bin_path = "/home/shiraha_yuki/文档/project/wedjat/client/backend/server/utils/gotiler/gotiler"
+timeout_secs = 1800
+points_per_tile = 100000
+colorize = ""
+
+[conversion.model]
+java_bin = "java"
+jar_path = "/home/shiraha_yuki/文档/project/wedjat/client/backend/server/utils/model/mago-3d-tiler.jar"
+max_heap = "8g"          # 倾斜摄影大场景很吃内存，比地形那条要给得多
+timeout_secs = 7200
 
 [data]
 # 转换产物（.mbtiles, tileset.json 等）的存放根目录

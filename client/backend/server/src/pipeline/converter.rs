@@ -1,5 +1,5 @@
 use super::error::ConverterError;
-use super::fns::*;
+use super::converters::*;
 use crate::config::Config;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone, Copy)]
 pub enum ConvertType {
     Las2Tiles,
-    Osgb2Tiles,
+    Mesh2Tiles,
     Tiff2Mbtiles,
     Tiff2Terrain,
 }
@@ -36,15 +36,17 @@ impl Worker {
         tokio::spawn(async move {
             while let Some(task) = rx.recv().await {
                 match task.convert_type {
-                    ConvertType::Las2Tiles => las2tiles(task, cfg.clone(), db.clone()).await,
-                    ConvertType::Osgb2Tiles => {
-                        osgb2tiles(task, cfg.clone(), db.clone()).await;
+                    ConvertType::Las2Tiles => {
+                        let _ = las2tiles(task, cfg.clone(), db.clone()).await;
+                    }
+                    ConvertType::Mesh2Tiles => {
+                        let _ = mesh2tiles(task, cfg.clone(), db.clone()).await;
                     }
                     ConvertType::Tiff2Mbtiles => {
-                        tiff2mbtiles(task, cfg.clone(), db.clone()).await;
+                        let _ = tiff2mbtiles(task, cfg.clone(), db.clone()).await;
                     }
                     ConvertType::Tiff2Terrain => {
-                        tiff2terrain(task, cfg.clone(), db.clone()).await;
+                        let _ = tiff2terrain(task, cfg.clone(), db.clone()).await;
                     }
                 }
             }

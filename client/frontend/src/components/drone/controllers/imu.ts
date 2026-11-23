@@ -1,4 +1,4 @@
 import { Controller } from "@virid/core";
 
 @Controller()
-export class InertialController {}
+export class IMUController {}

@@ -1,3 +1,3 @@
 pub mod converter;
-mod fns;
+mod converters;
 pub mod error;

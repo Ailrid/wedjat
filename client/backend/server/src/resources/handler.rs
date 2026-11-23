@@ -26,7 +26,7 @@ async fn infer(path: &str) -> Result<(&'static str, ConvertType), AppError> {
             }
         }
         "las" | "laz" => Ok(("tiles", ConvertType::Las2Tiles)),
-        "osgb" => Ok(("tiles", ConvertType::Osgb2Tiles)),
+        "osgb" => Ok(("tiles", ConvertType::Mesh2Tiles)),
         _ => Err(AppError::BadRequest(format!(
             "unsupported file extension: {ext}"
         ))),
