@@ -4,8 +4,9 @@ use axum::{Router, routing::post};
 
 pub fn resources_router() -> Router<AppState> {
     Router::new()
-        .route("/resources/create", post(h::create))
-        .route("/resources/get", post(h::get))
-        .route("/resources/group", post(h::get_group))
+        .route("/resources/imagery", post(h::create_imagery))
+        .route("/resources/terrain", post(h::create_terrain))
+        .route("/resources/tiles", post(h::create_tiles))
         .route("/resources/list", post(h::list))
+        .route("/resources/delete", post(h::delete))
 }

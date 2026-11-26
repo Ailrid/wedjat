@@ -9,9 +9,6 @@ pub enum ConverterError {
     #[error("Submit task error: {0}")]
     SubmitTaskError(#[from] mpsc::error::TrySendError<super::converter::Task>),
 
-    #[error("Source record is failed or converting: {0}")]
-    CheckTaskError(String),
-
     #[error("command `{cmd}` failed: {stderr}")]
     CommandFailed { cmd: String, stderr: String },
 

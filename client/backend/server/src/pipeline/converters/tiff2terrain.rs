@@ -1,4 +1,4 @@
-use super::util::{check_task, run_cmd};
+use super::util::run_cmd;
 use crate::config::{Config, TerrainConfig};
 use crate::pipeline::converter::Task;
 use crate::pipeline::error::ConverterError;
@@ -9,10 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use uuid::Uuid;
 
 pub(crate) struct PreparedData {
-    pub id: i64,
     pub url: String,
     pub output: PathBuf, // {output_root}/terrain/{uuid}
     pub temp: PathBuf,   // {output_root}/temp/{uuid}
@@ -21,7 +19,6 @@ pub(crate) struct PreparedData {
 
 /// 转换产出的全部事实
 pub(crate) struct TerrainResult {
-    pub id: i64,
     pub url: String,
     pub min_zoom: i32,
     pub max_zoom: i32,
@@ -156,7 +153,6 @@ async fn run_mago(
     cmd.arg(&heap)
         .arg("-Xms256m")
         .arg("-XX:MaxDirectMemorySize=512m")
-        // OOM 时立刻非零退出，而不是死个线程继续跑
         .arg("-XX:+ExitOnOutOfMemoryError")
         .arg("-Djava.awt.headless=true")
         .arg("-jar")
@@ -179,38 +175,49 @@ async fn run_mago(
     run_cmd(cmd, "mago-3d-terrainer", timeout).await.map(|_| ())
 }
 
+/// 行已由 handler 插入。这里占住这一行并登记产物路径，然后准备 temp 目录
 async fn prepare(
     output_root: &str,
     task: &Task,
     pool: &PgPool,
 ) -> Result<PreparedData, ConverterError> {
     let root = Path::new(output_root);
-    let url = Uuid::new_v4().to_string();
-    let output = root.join("terrain").join(&url);
-    let temp = root.join("temp").join(&url);
+    let id = task.id.to_string();
+    let output = root.join("terrain").join(&id);
+    let temp = root.join("temp").join(&id);
     let dem = temp.join("dem.tif");
     let output_s = output.to_string_lossy().to_string();
+    let url = format!("/api/data/terrain/{id}/layer.json");
 
     fs::create_dir_all(&temp)?;
 
-    // 产物是 4326 地理切片
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO resources (name, category, source_path, url, group_name, epsg, status)
-         VALUES ($1, 'terrain', $2, $3, $4, 4326, 'pending')
-         RETURNING id",
+    let affected = sqlx::query(
+        "UPDATE resources
+            SET status      = 'converting',
+                url         = $2,
+                output_path = $3,
+                updated_at  = now()
+          WHERE id = $1
+            AND status = 'pending'",
     )
-    .bind(&task.name)
-    .bind(&output_s)
+    .bind(task.id)
     .bind(&url)
-    .bind(&task.group_name)
-    .fetch_one(pool)
-    .await?;
+    .bind(&output_s)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
-    tracing::Span::current().record("id", id);
+    if affected == 0 {
+        let _ = fs::remove_dir_all(&temp);
+        return Err(ConverterError::OtherError(format!(
+            "resource {} is not pending anymore",
+            task.id
+        )));
+    }
+
     tracing::Span::current().record("output", output_s.as_str());
 
     Ok(PreparedData {
-        id,
         url,
         output,
         temp,
@@ -271,7 +278,6 @@ pub(crate) async fn convert(
             let _ = fs::remove_dir_all(&prepared.temp);
 
             Ok(TerrainResult {
-                id: prepared.id,
                 url: prepared.url,
                 min_zoom,
                 max_zoom,
@@ -294,7 +300,7 @@ pub(crate) async fn convert(
         input = %task.source_path,
         name = %task.name,
         convert_type = ?task.convert_type,
-        id = tracing::field::Empty,
+        id =  %task.id,
         output = tracing::field::Empty,
     )
 )]
@@ -303,10 +309,9 @@ pub async fn tiff2terrain(
     cfg: Arc<Config>,
     pool: PgPool,
 ) -> Result<(), ConverterError> {
-    check_task(&task.source_path, &pool).await?;
+    let id = task.id;
 
     let prepared = prepare(&cfg.data.output_root, &task, &pool).await?;
-    let id = prepared.id;
 
     let tc = &cfg.conversion.terrain;
 
@@ -324,7 +329,7 @@ pub async fn tiff2terrain(
                         updated_at = now()
                   WHERE id = $1",
             )
-            .bind(result.id)
+            .bind(id)
             .bind(result.min_zoom)
             .bind(result.max_zoom)
             .bind(result.bounds[0])

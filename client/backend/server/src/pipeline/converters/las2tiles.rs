@@ -1,4 +1,4 @@
-use super::util::{check_task, run_cmd};
+use super::util::run_cmd;
 use crate::config::{Config, PointCloudConfig};
 use crate::pipeline::converter::Task;
 use crate::pipeline::error::ConverterError;
@@ -9,16 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use uuid::Uuid;
 
 pub(crate) struct PreparedData {
-    pub id: i64,
     pub url: String,
     pub output: PathBuf, // {output_root}/tiles/{uuid}
 }
 
 pub(crate) struct TilesResult {
-    pub id: i64,
     pub url: String,
     pub bounds: Option<[f64; 4]>, // [west, south, east, north]，度
     pub elapsed: Duration,
@@ -42,16 +39,14 @@ struct BoundingVolume {
     region: Option<[f64; 6]>,
 }
 
-
 fn read_tileset(output: &Path) -> Result<Tileset, ConverterError> {
     let path = output.join("tileset.json");
-    let raw =
-        fs::read(&path).map_err(|e| ConverterError::OtherError(format!("read {}: {e}", path.display())))?;
+    let raw = fs::read(&path)
+        .map_err(|e| ConverterError::OtherError(format!("read {}: {e}", path.display())))?;
 
     serde_json::from_slice(&raw)
         .map_err(|e| ConverterError::OtherError(format!("parse tileset.json: {e}")))
 }
-
 
 async fn run_gotiler(
     input: &Path,
@@ -78,37 +73,47 @@ async fn run_gotiler(
     run_cmd(cmd, "gotiler", timeout).await.map(|_| ())
 }
 
-
-
+/// 行已由 handler 插入。这里只做两件事：占住这一行（pending -> converting，写入 url/output_path），准备目录
 async fn prepare(
     output_root: &str,
     task: &Task,
     pool: &PgPool,
 ) -> Result<PreparedData, ConverterError> {
-    let root = Path::new(output_root);
-    let url = Uuid::new_v4().to_string();
-    let output = root.join("tiles").join(&url);
+    let id = task.id.to_string();
+    let output = Path::new(output_root).join("tiles").join(&id);
     let output_s = output.to_string_lossy().to_string();
+    let url = format!("/api/data/tiles/{id}/tileset.json");
 
-    fs::create_dir_all(root.join("tiles"))?;
+    fs::create_dir_all(&output)?;
 
-    // 3D Tiles 是 ECEF 坐标，产品坐标系记 4978
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO resources (name, category, source_path, url, group_name, epsg, status)
-         VALUES ($1, 'tiles', $2, $3, $4, 4978, 'pending')
-         RETURNING id",
+    let affected = sqlx::query(
+        "UPDATE resources
+            SET status      = 'converting',
+                url         = $2,
+                output_path = $3,
+                updated_at  = now()
+          WHERE id = $1
+            AND status = 'pending'",
     )
-    .bind(&task.name)
-    .bind(&output_s)
+    .bind(task.id)
     .bind(&url)
-    .bind(&task.group_name)
-    .fetch_one(pool)
-    .await?;
+    .bind(&output_s)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
-    tracing::Span::current().record("id", id);
+    if affected == 0 {
+        // 行被删了，或者已经被另一个任务接管了，别白跑
+        let _ = fs::remove_dir_all(&output);
+        return Err(ConverterError::OtherError(format!(
+            "resource {} is not pending anymore",
+            task.id
+        )));
+    }
+
     tracing::Span::current().record("output", output_s.as_str());
 
-    Ok(PreparedData { id, url, output })
+    Ok(PreparedData { url, output })
 }
 
 /// 拿走所有权，跑完返回 TilesResult
@@ -141,7 +146,6 @@ pub(crate) async fn convert(
             });
 
             Ok(TilesResult {
-                id: prepared.id,
                 url: prepared.url,
                 bounds,
                 elapsed,
@@ -154,7 +158,6 @@ pub(crate) async fn convert(
     }
 }
 
-
 #[tracing::instrument(
     skip(cfg, pool),
     err,
@@ -162,19 +165,14 @@ pub(crate) async fn convert(
         input = %task.source_path,
         name = %task.name,
         convert_type = ?task.convert_type,
-        id = tracing::field::Empty,
+        id = %task.id,
         output = tracing::field::Empty,
     )
 )]
-pub async fn las2tiles(
-    task: Task,
-    cfg: Arc<Config>,
-    pool: PgPool,
-) -> Result<(), ConverterError> {
-    check_task(&task.source_path, &pool).await?;
+pub async fn las2tiles(task: Task, cfg: Arc<Config>, pool: PgPool) -> Result<(), ConverterError> {
+    let id = task.id;
 
     let prepared = prepare(&cfg.data.output_root, &task, &pool).await?;
-    let id = prepared.id;
 
     let pc = &cfg.conversion.pointcloud;
 
@@ -196,7 +194,7 @@ pub async fn las2tiles(
                         updated_at = now()
                   WHERE id = $1",
             )
-            .bind(result.id)
+            .bind(id)
             .bind(w)
             .bind(s)
             .bind(e)

@@ -93,7 +93,7 @@ export interface ElevationStop {
 }
 
 export interface PointCloudConfig {
-  type: "pcd";
+  type: "las";
   styleMode: PointCloudStyleMode;
 
   // ---- uniform 模式 ----
@@ -115,9 +115,9 @@ export interface PointCloudConfig {
   credit: string;
 }
 
-// ---------- OSGB 转换产物 ----------
-export interface OsgbConfig {
-  type: "osgb";
+// ---------- Mesh 转换产物 ----------
+export interface MeshConfig {
+  type: "mesh";
   /** 屏幕空间误差，默认 16；倾斜模型可适当放宽 */
   maximumScreenSpaceError: number;
   /** 阴影模式 */
@@ -126,11 +126,10 @@ export interface OsgbConfig {
   dynamicScreenSpaceError: boolean;
   /** 最大内存占用（MB），默认 512 */
   maximumMemoryUsage: number;
-
   credit: string;
 }
 
-export type TilesConfig = OsgbConfig | PointCloudConfig;
+export type TilesConfig = MeshConfig | PointCloudConfig;
 // --------------------------------------------------------------------------
 export type ResourceType =
   | "imagery" // DOM、专题底图（XYZ / WMS / WMTS）
@@ -163,16 +162,16 @@ export interface ResourceResponse {
   category: string;
   url: string | null;
   status: string;
-  error_message: string | null;
-  min_lon: number | null;
-  min_lat: number | null;
-  max_lon: number | null;
-  max_lat: number | null;
-  min_zoom: number | null;
-  max_zoom: number | null;
+  errorMessage: string | null;
+  minLon: number | null;
+  minLat: number | null;
+  maxLon: number | null;
+  maxLat: number | null;
+  minZoom: number | null;
+  maZoom: number | null;
   epsg: number;
-  group_name: string | null;
+  groupName: string | null;
   extra: ResourceExtra;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 }

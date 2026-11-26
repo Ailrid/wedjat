@@ -1,4 +1,4 @@
-use super::util::{check_task, run_cmd};
+use super::util::run_cmd;
 use crate::config::{Config, MeshConfig};
 use crate::pipeline::converter::Task;
 use crate::pipeline::error::ConverterError;
@@ -8,19 +8,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use uuid::Uuid;
+
 
 pub(crate) struct PreparedData {
-    pub id: i64,
     pub url: String,
     pub output: PathBuf, // {output_root}/models/{uuid}
 }
 
 pub(crate) struct ModelResult {
-    pub id: i64,
     pub url: String,
     pub elapsed: Duration,
 }
+
 /// tileset.json 存在且有 root，就说明这次转换真的产出了东西
 fn validate_tileset(output: &Path) -> Result<(), ConverterError> {
     let path = output.join("tileset.json");
@@ -109,36 +108,46 @@ async fn run_mago_tiler(
     run_cmd(cmd, "mago-3d-tiler", timeout).await.map(|_| ())
 }
 
+/// 行已由 handler 插入。这里只做两件事：占住这一行（pending -> converting，写入 url/output_path），准备目录
 async fn prepare(
     output_root: &str,
     task: &Task,
     pool: &PgPool,
 ) -> Result<PreparedData, ConverterError> {
-    let root = Path::new(output_root);
-    let url = Uuid::new_v4().to_string();
-    let output = root.join("models").join(&url);
+    let id = task.id.to_string();
+    let output = Path::new(output_root).join("mesh").join(&id);
     let output_s = output.to_string_lossy().to_string();
+    let url = format!("/api/data/mesh/{id}/tileset.json");
 
-    fs::create_dir_all(root.join("models"))?;
+    fs::create_dir_all(&output)?;
 
-    // 3D Tiles 是 ECEF 坐标；extra 里标记这是模型而不是点云
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO resources (name, category, source_path, url, group_name, epsg, status, extra)
-         VALUES ($1, 'tiles', $2, $3, $4, 4978, 'pending', $5)
-         RETURNING id",
+    let affected = sqlx::query(
+        "UPDATE resources
+            SET status      = 'converting',
+                url         = $2,
+                output_path = $3,
+                updated_at  = now()
+          WHERE id = $1
+            AND status = 'pending'",
     )
-    .bind(&task.name)
-    .bind(&output_s)
+    .bind(task.id)
     .bind(&url)
-    .bind(&task.group_name)
-    .bind(serde_json::json!({ "type": "model" }))
-    .fetch_one(pool)
-    .await?;
+    .bind(&output_s)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
-    tracing::Span::current().record("id", id);
+    if affected == 0 {
+        let _ = fs::remove_dir_all(&output);
+        return Err(ConverterError::OtherError(format!(
+            "resource {} is not pending anymore",
+            task.id
+        )));
+    }
+
     tracing::Span::current().record("output", output_s.as_str());
 
-    Ok(PreparedData { id, url, output })
+    Ok(PreparedData { url, output })
 }
 
 pub(crate) async fn convert(
@@ -160,7 +169,6 @@ pub(crate) async fn convert(
 
     match steps {
         Ok(()) => Ok(ModelResult {
-            id: prepared.id,
             url: prepared.url,
             elapsed,
         }),
@@ -178,15 +186,14 @@ pub(crate) async fn convert(
         input = %task.source_path,
         name = %task.name,
         convert_type = ?task.convert_type,
-        id = tracing::field::Empty,
+        id = %task.id,
         output = tracing::field::Empty,
     )
 )]
 pub async fn mesh2tiles(task: Task, cfg: Arc<Config>, pool: PgPool) -> Result<(), ConverterError> {
-    check_task(&task.source_path, &pool).await?;
+    let id = task.id;
 
     let prepared = prepare(&cfg.data.output_root, &task, &pool).await?;
-    let id = prepared.id;
 
     let mc = &cfg.conversion.mesh;
 
@@ -194,10 +201,11 @@ pub async fn mesh2tiles(task: Task, cfg: Arc<Config>, pool: PgPool) -> Result<()
         Ok(result) => {
             sqlx::query(
                 "UPDATE resources
-                    SET status = 'ready', updated_at = now()
+                    SET status     = 'ready',
+                        updated_at = now()
                   WHERE id = $1",
             )
-            .bind(result.id)
+            .bind(id)
             .execute(&pool)
             .await?;
 

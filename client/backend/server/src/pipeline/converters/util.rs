@@ -1,5 +1,4 @@
 use crate::pipeline::error::ConverterError;
-use sqlx::PgPool;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -29,22 +28,4 @@ pub async fn run_cmd(
     }
 
     Ok(out.stdout)
-}
-
-pub async fn check_task(input: &str, pool: &PgPool) -> Result<(), ConverterError> {
-    let row: Option<(String,)> = sqlx::query_as(
-        "SELECT status FROM resources WHERE source_path = $1 ORDER BY id DESC LIMIT 1",
-    )
-    .bind(input)
-    .fetch_optional(pool)
-    .await?;
-
-    if let Some((_,)) = row {
-        return Err(ConverterError::CheckTaskError(format!(
-            "Task already exists for {:?}",
-            input.to_string()
-        )));
-    }
-
-    Ok(())
 }

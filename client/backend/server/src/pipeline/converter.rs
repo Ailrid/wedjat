@@ -1,5 +1,5 @@
-use super::error::ConverterError;
 use super::converters::*;
+use super::error::ConverterError;
 use crate::config::Config;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -15,9 +15,9 @@ pub enum ConvertType {
 
 #[derive(Debug, Clone)]
 pub struct Task {
+    pub id: i64,
     pub name: String,
     pub source_path: String,
-    pub group_name: Option<String>,
     pub epsg: i32,
     pub convert_type: ConvertType,
 }
@@ -53,10 +53,6 @@ impl Worker {
         });
 
         Worker { tx }
-    }
-
-    fn load(&self) -> usize {
-        self.tx.max_capacity() - self.tx.capacity()
     }
 
     fn remaining(&self) -> usize {
@@ -95,12 +91,13 @@ impl Converter {
         let mut order: Vec<usize> = (0..self.workers.len()).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(self.workers[i].remaining()));
 
-        self.workers[0].try_submit(task)?;
-
-        Err(ConverterError::QueueFull)
-    }
-
-    pub fn total_load(&self) -> usize {
-        self.workers.iter().map(|w| w.load()).sum()
+        let mut last_err = ConverterError::QueueFull;
+        for i in order {
+            match self.workers[i].try_submit(task.clone()) {
+                Ok(()) => return Ok(()),
+                Err(e) => last_err = e,
+            }
+        }
+        Err(last_err)
     }
 }

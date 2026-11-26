@@ -1,4 +1,4 @@
-use super::util::{check_task, run_cmd};
+use super::util::run_cmd;
 use crate::config::{Config, MbtilesConfig};
 use crate::pipeline::converter::Task;
 use crate::pipeline::error::ConverterError;
@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use uuid::Uuid;
 
 /// 只读打开产物 mbtiles
 async fn open_mbtiles(path: &Path) -> Result<sqlx::SqlitePool, ConverterError> {
@@ -125,9 +124,8 @@ async fn build_overviews(
     run_cmd(cmd, "gdaladdo", timeout).await.map(|_| ())
 }
 
-/// 转换前就绪的东西：产物记录 + 路径
+/// 转换前就绪的东西：路径 + url（= Martin 图层名）
 pub(crate) struct PreparedData {
-    pub id: i64,
     pub url: String,
     pub output: PathBuf,
     pub temp: PathBuf,
@@ -135,7 +133,6 @@ pub(crate) struct PreparedData {
 
 /// 转换产出的全部事实
 pub(crate) struct ConvertResult {
-    pub id: i64,
     pub url: String,
     pub min_zoom: i32,
     pub max_zoom: i32,
@@ -143,6 +140,7 @@ pub(crate) struct ConvertResult {
     pub elapsed: Duration,
 }
 
+/// 行已由 handler 插入。这里占住这一行并登记产物路径，然后准备目录
 async fn prepare(
     output_root: &str,
     task: &Task,
@@ -157,34 +155,38 @@ async fn prepare(
     std::fs::create_dir_all(&temp_dir)?;
 
     // url 同时作为产物文件名和 Martin 的访问前缀
-    let url = Uuid::new_v4().to_string();
-    let output = mbtiles_dir.join(format!("{url}.mbtiles"));
-    let temp = temp_dir.join(format!("{url}.warped.tif"));
+    let id = task.id.to_string();
+    let output = mbtiles_dir.join(format!("{id}.mbtiles"));
+    let temp = temp_dir.join(format!("{id}.warped.tif"));
     let output_s = output.to_string_lossy().to_string();
+    let url = id;
 
-    // 产物记录：source_path = 产物路径，url = Martin 访问前缀
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO resources (name, category, source_path, url, group_name, epsg, status)
-         VALUES ($1, 'imagery', $2, $3, $4, $5, 'pending')
-         RETURNING id",
+    let affected = sqlx::query(
+        "UPDATE resources
+            SET status      = 'converting',
+                url         = $2,
+                output_path = $3,
+                updated_at  = now()
+          WHERE id = $1
+            AND status = 'pending'",
     )
-    .bind(&task.name)
-    .bind(&output_s)
+    .bind(task.id)
     .bind(&url)
-    .bind(&task.group_name)
-    .bind(task.epsg)
-    .fetch_one(pool)
-    .await?;
+    .bind(&output_s)
+    .execute(pool)
+    .await?
+    .rows_affected();
 
-    tracing::Span::current().record("id", id);
+    if affected == 0 {
+        return Err(ConverterError::OtherError(format!(
+            "resource {} is not pending anymore",
+            task.id
+        )));
+    }
+
     tracing::Span::current().record("output", output_s.as_str());
 
-    Ok(PreparedData {
-        id,
-        url,
-        output,
-        temp,
-    })
+    Ok(PreparedData { url, output, temp })
 }
 
 /// 四步跑完，只返回事实
@@ -226,20 +228,19 @@ pub(crate) async fn convert(
     let steps = run_steps(&task, &prepared, mb, timeout).await;
     let elapsed = started.elapsed();
 
-    // 中间文件无论如何都删
-    std::fs::remove_file(&prepared.temp)?;
+    // 中间文件无论如何都删，删不掉也不该覆盖真正的错误
+    let _ = std::fs::remove_file(&prepared.temp);
 
     let (min_zoom, max_zoom, overviews) = match steps {
         Ok(v) => v,
         Err(e) => {
             // 失败时半成品也要删，否则 Martin 会扫到残缺的库
-            std::fs::remove_file(&prepared.output)?;
+            let _ = std::fs::remove_file(&prepared.output);
             return Err(e);
         }
     };
 
     Ok(ConvertResult {
-        id: prepared.id,
         url: prepared.url,
         min_zoom,
         max_zoom,
@@ -255,7 +256,7 @@ pub(crate) async fn convert(
         input = %task.source_path,
         name = %task.name,
         convert_type = ?task.convert_type,
-        id = tracing::field::Empty,
+        id = %task.id,
         output = tracing::field::Empty,
     )
 )]
@@ -264,10 +265,9 @@ pub async fn tiff2mbtiles(
     cfg: Arc<Config>,
     pool: PgPool,
 ) -> Result<(), ConverterError> {
-    check_task(&task.source_path, &pool).await?;
+    let id = task.id;
 
     let prepared = prepare(&cfg.data.output_root, &task, &pool).await?;
-    let id = prepared.id;
 
     match convert(task, prepared, &cfg.conversion.mbtiles).await {
         Ok(result) => {
@@ -279,7 +279,7 @@ pub async fn tiff2mbtiles(
                         updated_at = now()
                   WHERE id = $1",
             )
-            .bind(result.id)
+            .bind(id)
             .bind(result.min_zoom)
             .bind(result.max_zoom)
             .execute(&pool)

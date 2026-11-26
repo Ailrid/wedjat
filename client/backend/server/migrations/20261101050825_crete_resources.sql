@@ -5,6 +5,7 @@ CREATE TABLE resources (
     category      TEXT NOT NULL CHECK (category IN ('imagery','terrain','tiles','vector')),
     url           TEXT,
     source_path   TEXT NOT NULL,
+    output_path   TEXT,
     status        TEXT NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending','converting','ready','failed')),
     error_message TEXT,

@@ -282,12 +282,12 @@ export class ResourceSystem {
       maximumScreenSpaceError: config.maximumScreenSpaceError,
       dynamicScreenSpaceError: config.dynamicScreenSpaceError,
 
-      ...(config.type === "osgb"
+      ...(config.type === "mesh"
         ? { maximumMemoryUsage: config.maximumMemoryUsage }
         : {}),
     });
 
-    if (config.type === "pcd") {
+    if (config.type === "las") {
       // PointCloudShading：衰减 + 视锥点照明
       tileset.pointCloudShading.attenuation = config.attenuation;
       tileset.pointCloudShading.eyeDomeLighting = config.eyeDomeLighting;
@@ -507,16 +507,16 @@ export class ResourceSystem {
     let rect: Cesium.Rectangle | undefined;
 
     if (
-      bounds?.min_lon != null &&
-      bounds?.min_lat != null &&
-      bounds?.max_lon != null &&
-      bounds?.max_lat != null
+      bounds?.minLon != null &&
+      bounds?.minLat != null &&
+      bounds?.maxLon != null &&
+      bounds?.maxLat != null
     ) {
       rect = Cesium.Rectangle.fromDegrees(
-        bounds.min_lon,
-        bounds.min_lat,
-        bounds.max_lon,
-        bounds.max_lat,
+        bounds.minLon,
+        bounds.minLat,
+        bounds.maxLon,
+        bounds.maxLat,
       );
     }
 
